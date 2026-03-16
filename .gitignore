@@ -1,0 +1,26 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# IDE / SO
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Saídas geradas
+data/outputs/*
+!data/outputs/.gitkeep
