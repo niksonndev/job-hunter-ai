@@ -20,6 +20,7 @@ Hoje o fluxo é executado on‑demand via CLI; no futuro pode rodar em loop/sche
 - **Execução TS**: `ts-node`
 - **IA**: SDK oficial da OpenAI (`openai`)
 - **Automação de browser / scraping**: `playwright` (LinkedIn job page)
+- **Storage local**: `better-sqlite3` (SQLite embutido, sem servidor)
 - **Configuração de ambiente**: `dotenv`
 
 ### Estrutura de pastas
@@ -27,15 +28,18 @@ Hoje o fluxo é executado on‑demand via CLI; no futuro pode rodar em loop/sche
 ```text
 vaga-bot-ai/
 ├── src/
-│   ├── scraper.ts   # busca a vaga (LinkedIn) e extrai JobData
-│   ├── analyzer.ts  # analisa compatibilidade currículo x vaga (JSON, score, keywords)
-│   ├── adapter.ts   # reescreve currículo otimizado para ATS e salva .md
-│   ├── composer.ts  # gera email de candidatura e salva .txt
-│   └── index.ts     # CLI que orquestra tudo
+│   ├── scraper.ts    # busca uma vaga (LinkedIn) e extrai JobData
+│   ├── search.ts     # busca pública de vagas no LinkedIn (lista de URLs canônicas)
+│   ├── analyzer.ts   # analisa compatibilidade currículo x vaga (JSON, score, keywords)
+│   ├── adapter.ts    # reescreve currículo otimizado para ATS e salva .md
+│   ├── composer.ts   # gera email de candidatura e salva .txt
+│   ├── storage.ts    # storage local em SQLite para URLs de vagas (deduplicação)
+│   └── index.ts      # CLI que orquestra tudo (URL única ou busca em lote)
 ├── data/
-│   ├── nikson-curriculo-pt.md   # currículo base (PT)
-│   ├── nikson-curriculum-en.md  # currículo base (EN) – opcional
-│   └── outputs/                 # arquivos gerados (currículos e emails)
+│   ├── nikson-curriculo-pt.md     # currículo base (PT)
+│   ├── nikson-curriculum-en.md    # currículo base (EN) – opcional
+│   ├── jobs.db                    # banco SQLite local (gerado em runtime)
+│   └── outputs/                   # arquivos gerados (currículos e emails)
 ├── .env                  # variáveis de ambiente (não versionado)
 ├── .env.example          # exemplo de config de ambiente
 ├── package.json
@@ -102,21 +106,44 @@ export interface AnalysisResult {
 
 5. **Orquestração (`index.ts`)**
    - Carrega `.env` (`dotenv/config`) e valida `OPENAI_API_KEY`.
-   - Lê a URL da vaga de `process.argv[2]`.
-   - Fluxo:
-     1. `scrapeJob(url)`
-     2. `analyzeJob(job)`
-     3. Se `analysis.relevant === false`, loga:
-        - `⚠️  Vaga não relevante (score: X/10): [reason] — encerrando.`
-        - E encerra.
-     4. `adaptResume(job, analysis)`
-     5. `composeEmail(job, analysis)`
-   - Loga o progresso:
-     - `🔍 Buscando vaga...`
-     - `📊 Analisando compatibilidade...`
-     - `✍️  Adaptando currículo...`
-     - `📧 Gerando email...`
-     - `✅ Concluído! Arquivos gerados em data/outputs/`
+   - Expõe dois modos de execução via CLI:
+     1. **Modo URL única** (fluxo original)
+        - Comando:
+          ```bash
+          npm run dev -- "https://www.linkedin.com/jobs/view/4371177488"
+          ```
+        - Fluxo:
+          1. `scrapeJob(url)`
+          2. `analyzeJob(job)`
+          3. Se `analysis.relevant === false`, loga:
+             - `⚠️  Vaga não relevante (score: X/10): [reason] — encerrando.`
+             - E encerra.
+          4. `adaptResume(job, analysis)`
+          5. `composeEmail(job, analysis)`
+     2. **Modo busca em lote no LinkedIn**
+        - Comando:
+          ```bash
+          npm run dev -- search "desenvolvedor backend node"
+          ```
+        - Fluxo:
+          1. `searchJobs(query)` em `search.ts` monta a URL pública de busca de vagas do LinkedIn com filtros (Brasil, remoto, últimos 30 dias, pleno+sênior, full‑time) e retorna um array de URLs canônicas no formato:
+             - `https://www.linkedin.com/jobs/view/<JOB_ID>`
+          2. Para cada URL retornada:
+             - `saveJobUrl(url)` em `storage.ts` tenta inserir a URL no SQLite (`data/jobs.db`):
+               - Se já existir, a vaga é **pulada** (`⏭️  Vaga já processada, pulando: ...`).
+               - Se for nova, segue o pipeline.
+             - `scrapeJob(url)` para extrair `JobData`.
+             - `analyzeJob(job)` para obter `AnalysisResult`.
+             - Se a vaga for pouco relevante, apenas loga e segue para a próxima.
+             - Se for relevante:
+               - `adaptResume(job, analysis)` → currículo adaptado salvo em `data/outputs/...-resume.md`.
+               - `composeEmail(job, analysis)` → email salvo em `data/outputs/...-email.txt`.
+          3. Loga o progresso de cada vaga:
+             - `🔍 Processando vaga: <URL>`
+             - `📊 Analisando compatibilidade...`
+             - `✍️  Adaptando currículo...`
+             - `📧 Gerando email...`
+             - `✅ Vaga processada com sucesso! { title, company, score, url }`
 
 ### Variáveis de ambiente
 
@@ -145,7 +172,9 @@ npm install
 
 3. Coloque seu currículo base em `data/nikson-curriculo-pt.md` (Markdown).
 
-4. Rode o pipeline completo passando a URL da vaga:
+4. Modos de execução:
+
+#### 4.1. Pipeline completo para **uma URL específica**
 
 ```bash
 npm run dev -- "https://www.linkedin.com/jobs/view/4371177488"
@@ -157,6 +186,21 @@ Isso irá:
 - Analisar compatibilidade currículo x vaga.
 - Gerar um currículo adaptado para ATS em `data/outputs/...-resume.md`.
 - Gerar um email de candidatura em `data/outputs/...-email.txt`.
+
+#### 4.2. Busca automática de vagas + processamento em lote
+
+```bash
+npm run dev -- search "desenvolvedor backend node"
+```
+
+Isso irá:
+
+- Abrir uma busca pública de vagas do LinkedIn para o termo informado (Brasil, remoto, últimos 30 dias, pleno+sênior, full‑time).
+- Extrair os links das vagas, normalizar para o formato `https://www.linkedin.com/jobs/view/<JOB_ID>` e **eliminar duplicados**.
+- Armazenar cada URL em `data/jobs.db` (SQLite) para não reprocessar a mesma vaga em execuções futuras.
+- Para cada vaga nova:
+  - Rodar scraping, análise de compatibilidade, adaptação de currículo e geração de email.
+  - Salvar currículo e email em `data/outputs/`.
 
 ---
 

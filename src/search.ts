@@ -29,7 +29,7 @@ export async function searchJobs(query: string): Promise<string[]> {
 
   try {
     browser = await chromium.launch({
-      headless: false,
+      headless: true,
     });
 
     const context = await browser.newContext({
