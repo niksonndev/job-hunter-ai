@@ -14,26 +14,39 @@ for (const key of requiredEnvVars) {
 }
 
 async function main() {
-  // Orquestração mínima; implementação real virá depois.
-  const jobUrl = '';
+  const jobUrl = process.argv[2];
+
+  if (!jobUrl) {
+    console.error('Erro: informe a URL da vaga como argumento. Ex: npm run dev -- "<URL_DA_VAGA>"');
+    process.exit(1);
+  }
+
+  console.log('🔍 Buscando vaga...');
   const job = await scrapeJob(jobUrl);
-  const analysis = analyzeJob(job, '');
 
-  const adapted = adaptResume('', {
-    jobTitle: job.title,
-    jobDescription: job.description,
-  });
+  console.log('📊 Analisando compatibilidade...');
+  const analysis = await analyzeJob(job);
 
-  const email = composeEmail({
-    jobTitle: job.title,
-    adaptedResume: adapted.content,
-  });
+  if (!analysis.relevant) {
+    console.log(`⚠️  Vaga não relevante (score: ${analysis.score}/10): ${analysis.reason} — encerrando.`);
+    return;
+  }
 
-  console.log('Pipeline inicializado (sem lógica real ainda).', {
-    job,
+  console.log('✍️  Adaptando currículo...');
+  const adapted = await adaptResume(job, analysis);
+
+  console.log('📧 Gerando email...');
+  const email = await composeEmail(job, analysis);
+
+  console.log('✅ Concluído! Arquivos gerados em data/outputs/');
+  console.log('Resumo:', {
+    job: {
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      url: job.url,
+    },
     analysis,
-    adapted,
-    email,
   });
 }
 
