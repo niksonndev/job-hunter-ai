@@ -21,6 +21,9 @@ const API_PAGE_SIZE = 10;
 const AUTH_PAGE_SIZE = 25;
 const API_REQUEST_DELAY_MS = 800;
 const AUTH_REQUEST_DELAY_MS = 1500;
+const MANUAL_CAPTCHA_TIMEOUT_MS = 5 * 60 * 1000;
+
+type AuthResult = 'authenticated' | 'captcha_required' | 'failed';
 
 export const SEARCH_KEYWORDS = {
   gtm: 'Google Tag Manager',
@@ -136,19 +139,18 @@ const STEALTH_INIT_SCRIPT = `
   Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en-US', 'en'] });
 `;
 
-async function launchBrowser(): Promise<Browser> {
-  return stealthChromium.launch({
-    headless: true,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-infobars',
-      '--window-size=1920,1080',
-      '--start-maximized',
-    ],
-  });
+const BROWSER_ARGS = [
+  '--disable-blink-features=AutomationControlled',
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-infobars',
+  '--window-size=1920,1080',
+  '--start-maximized',
+];
+
+async function launchBrowser(headless = true): Promise<Browser> {
+  return stealthChromium.launch({ headless, args: BROWSER_ARGS });
 }
 
 async function createContext(browser: Browser): Promise<BrowserContext> {
@@ -169,7 +171,7 @@ async function createContext(browser: Browser): Promise<BrowserContext> {
 // Login with CAPTCHA bypass
 // ---------------------------------------------------------------------------
 
-async function loginToLinkedIn(context: BrowserContext): Promise<boolean> {
+async function loginToLinkedIn(context: BrowserContext): Promise<AuthResult> {
   const email = process.env.LINKEDIN_EMAIL!;
   const password = process.env.LINKEDIN_PASSWORD!;
   const page = await context.newPage();
@@ -178,7 +180,6 @@ async function loginToLinkedIn(context: BrowserContext): Promise<boolean> {
     await page.goto(LINKEDIN_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('#username', { timeout: 10000 });
 
-    // Simula digitação humana
     await page.click('#username');
     await page.keyboard.type(email, { delay: 50 + Math.random() * 80 });
     await page.waitForTimeout(400 + Math.random() * 300);
@@ -191,16 +192,14 @@ async function loginToLinkedIn(context: BrowserContext): Promise<boolean> {
     console.log('  🔐 Credenciais enviadas...');
 
     await page.waitForTimeout(4000);
-    let currentUrl = page.url();
+    const currentUrl = page.url();
 
-    // Verifica se login direto funcionou
     if (/\/(feed|jobs|mynetwork|in\/)/.test(currentUrl)) {
       console.log('  ✅ Login bem-sucedido (sem CAPTCHA)!');
       saveCookies(await context.cookies());
-      return true;
+      return 'authenticated';
     }
 
-    // CAPTCHA/checkpoint detectado → tenta bypass via CapSolver
     if (currentUrl.includes('checkpoint') || currentUrl.includes('challenge')) {
       console.log('  🛡️  Checkpoint de segurança detectado...');
 
@@ -209,25 +208,80 @@ async function loginToLinkedIn(context: BrowserContext): Promise<boolean> {
         if (solved) {
           console.log('  ✅ Login bem-sucedido após bypass do CAPTCHA!');
           saveCookies(await context.cookies());
-          return true;
+          return 'authenticated';
         }
-      } else {
-        console.log('  ⚠️  CAPSOLVER_API_KEY não configurada — não é possível fazer bypass do CAPTCHA.');
-        console.log('       Configure CAPSOLVER_API_KEY no .env para bypass automático.');
+        console.log('  ⚠️  CapSolver não conseguiu resolver o CAPTCHA.');
       }
 
-      return false;
+      return 'captcha_required';
     }
 
     console.log(`  ⚠️  Estado pós-login desconhecido: ${currentUrl}`);
-    return false;
+    return 'failed';
   } finally {
     await page.close().catch(() => undefined);
   }
 }
 
-async function ensureAuthenticated(context: BrowserContext): Promise<boolean> {
-  // Tenta restaurar sessão via cookies salvos
+// ---------------------------------------------------------------------------
+// Login manual com navegador visível (para CAPTCHA)
+// ---------------------------------------------------------------------------
+
+async function loginWithManualCaptcha(): Promise<boolean> {
+  console.log('');
+  console.log('  🖥️  Abrindo navegador visível para resolver CAPTCHA manualmente...');
+  console.log('  ℹ️  Complete a verificação na janela do navegador que será aberta.');
+
+  let browser: Browser | undefined;
+
+  try {
+    browser = await launchBrowser(false);
+    const context = await createContext(browser);
+    const page = await context.newPage();
+
+    const email = process.env.LINKEDIN_EMAIL!;
+    const password = process.env.LINKEDIN_PASSWORD!;
+
+    await page.goto(LINKEDIN_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('#username', { timeout: 10000 });
+
+    await page.click('#username');
+    await page.keyboard.type(email, { delay: 50 + Math.random() * 80 });
+    await page.waitForTimeout(400 + Math.random() * 300);
+
+    await page.click('#password');
+    await page.keyboard.type(password, { delay: 50 + Math.random() * 80 });
+    await page.waitForTimeout(300 + Math.random() * 400);
+
+    await page.click('button[type="submit"]');
+    console.log('  🔐 Credenciais enviadas.');
+    console.log(`  ⏳ Aguardando resolução manual do CAPTCHA... (timeout: ${MANUAL_CAPTCHA_TIMEOUT_MS / 60000} min)`);
+
+    try {
+      await page.waitForURL(/\/(feed|jobs|mynetwork|in\/)/, { timeout: MANUAL_CAPTCHA_TIMEOUT_MS });
+      console.log('  ✅ Login bem-sucedido! Salvando sessão...');
+      saveCookies(await context.cookies());
+      return true;
+    } catch {
+      console.log('  ❌ Timeout aguardando resolução do CAPTCHA.');
+      return false;
+    }
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    if (msg.includes('Target closed') || msg.includes('Browser closed')) {
+      console.log('  ❌ Navegador foi fechado antes da resolução do CAPTCHA.');
+    } else {
+      console.log(`  ❌ Erro ao abrir navegador para CAPTCHA manual: ${msg}`);
+    }
+    return false;
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => undefined);
+    }
+  }
+}
+
+async function ensureAuthenticated(context: BrowserContext): Promise<AuthResult> {
   const cookies = loadCookies();
   if (cookies) {
     await context.addCookies(cookies);
@@ -241,7 +295,7 @@ async function ensureAuthenticated(context: BrowserContext): Promise<boolean> {
       const url = page.url();
       if (/\/(feed|jobs|mynetwork|in\/)/.test(url) && !url.includes('login')) {
         console.log('  🍪 Sessão restaurada via cookies.');
-        return true;
+        return 'authenticated';
       }
       console.log('  🍪 Cookies expirados, tentando login...');
     } finally {
@@ -249,7 +303,7 @@ async function ensureAuthenticated(context: BrowserContext): Promise<boolean> {
     }
   }
 
-  if (!hasLinkedInCredentials()) return false;
+  if (!hasLinkedInCredentials()) return 'failed';
   return loginToLinkedIn(context);
 }
 
@@ -407,9 +461,12 @@ async function searchJobsGuest(
  * Busca vagas no LinkedIn.
  *
  * Com credenciais (LINKEDIN_EMAIL/LINKEDIN_PASSWORD):
- *   1. Restaura sessão via cookies ou faz login com stealth
- *   2. Se CAPTCHA aparecer, faz bypass via CapSolver (CAPSOLVER_API_KEY)
- *   3. Busca autenticada com paginação real (25 vagas/página)
+ *   1. Restaura sessão via cookies ou faz login com stealth (headless)
+ *   2. Se CAPTCHA aparecer:
+ *      a. Tenta bypass via CapSolver (se CAPSOLVER_API_KEY estiver configurada)
+ *      b. Se CapSolver falhar ou não estiver configurada, abre navegador visível
+ *         para o usuário resolver o CAPTCHA manualmente (timeout: 5 min)
+ *   3. Após autenticação, busca continua em modo headless (25 vagas/página)
  *
  * Sem credenciais ou se login falhar:
  *   API guest com paginação (10 vagas/página, ~200 vagas max)
@@ -421,20 +478,40 @@ export async function searchJobs(query: string): Promise<string[]> {
 
   try {
     browser = await launchBrowser();
-    const context = await createContext(browser);
+    let context = await createContext(browser);
+    let authenticated = false;
+
+    if (useAuth) {
+      const authResult = await ensureAuthenticated(context);
+
+      if (authResult === 'captcha_required') {
+        await browser.close().catch(() => undefined);
+        browser = undefined;
+
+        const manualSuccess = await loginWithManualCaptcha();
+
+        browser = await launchBrowser();
+        context = await createContext(browser);
+
+        if (manualSuccess) {
+          const cookies = loadCookies();
+          if (cookies) {
+            await context.addCookies(cookies);
+            authenticated = true;
+          }
+        }
+      } else if (authResult === 'authenticated') {
+        authenticated = true;
+      }
+    }
 
     let jobIds: string[];
 
-    if (useAuth) {
-      const loggedIn = await ensureAuthenticated(context);
-      if (loggedIn) {
-        console.log('  🔍 Usando busca autenticada...');
-        jobIds = await searchJobsAuthenticated(query, context, maxResults);
-      } else {
-        console.log('  ⚠️  Login falhou, usando busca guest...');
-        jobIds = await searchJobsGuest(query, context, maxResults);
-      }
+    if (authenticated) {
+      console.log('  🔍 Usando busca autenticada...');
+      jobIds = await searchJobsAuthenticated(query, context, maxResults);
     } else {
+      if (useAuth) console.log('  ⚠️  Login falhou, usando busca guest...');
       jobIds = await searchJobsGuest(query, context, maxResults);
     }
 
