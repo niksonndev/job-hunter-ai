@@ -153,6 +153,13 @@ async function main() {
     }
   }
 
+  if (limit === undefined) {
+    const defaultLimitEnv = process.env.DEFAULT_SEARCH_LIMIT;
+    if (defaultLimitEnv && !Number.isNaN(Number(defaultLimitEnv)) && Number(defaultLimitEnv) > 0) {
+      limit = Math.floor(Number(defaultLimitEnv));
+    }
+  }
+
   const query = queryParts.join(' ').trim();
   if (!query) {
     console.error(
