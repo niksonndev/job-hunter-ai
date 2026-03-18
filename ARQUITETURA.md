@@ -20,9 +20,11 @@ Ponto de entrada: `src/index.ts` executado via `npm run dev`.
 |------|---------|-----------|
 | **Batch padrão** | `npm run dev` | Itera pelas 4 categorias de keywords (frontend, backend, fullstack, webAnalytics), 5 keywords cada = 20 buscas. Busca no LinkedIn + Indeed para cada keyword. |
 | **URL única** | `npm run dev -- "<URL>"` | Processa uma vaga específica (LinkedIn ou Indeed): scrape → análise → adaptação de currículo. |
-| **Busca manual** | `npm run dev -- search "<query>"` | Busca no LinkedIn + Indeed pelo termo livre informado. |
-| **Busca com limite** | `npm run dev -- search 10 "<query>"` | Busca pelo termo livre, processando no máximo N vagas. |
-| **Busca (alias PT)** | `npm run dev -- busca "<query>"` | Alias em português para `search`. Aceita limite numérico da mesma forma. |
+| **Busca (ambos)** | `npm run dev -- search "<query>"` | Busca no LinkedIn + Indeed pelo termo livre informado. |
+| **Apenas LinkedIn** | `npm run dev -- linkedin "<query>"` | Busca **apenas no LinkedIn** pelo termo livre. |
+| **Apenas Indeed** | `npm run dev -- indeed "<query>"` | Busca **apenas no Indeed** pelo termo livre. |
+| **Busca com limite** | `npm run dev -- search 10 "<query>"` | Busca pelo termo livre, processando no máximo N vagas. Funciona também com `linkedin` e `indeed`. |
+| **Busca (alias PT)** | `npm run dev -- busca "<query>"` | Alias em português para `search` (LinkedIn + Indeed). |
 
 ### Keywords de busca (SEARCH_KEYWORDS)
 
