@@ -23,6 +23,7 @@ Ponto de entrada: `src/index.ts` executado via `npm run dev`.
 | **Busca (ambos)** | `npm run dev -- search "<query>"` | Busca no LinkedIn + Indeed pelo termo livre informado. |
 | **Apenas LinkedIn** | `npm run dev -- linkedin "<query>"` | Busca **apenas no LinkedIn** pelo termo livre. |
 | **Apenas Indeed** | `npm run dev -- indeed "<query>"` | Busca **apenas no Indeed** pelo termo livre. |
+| **Login Indeed** | `npm run dev -- indeed-login` | Abre Chrome para login manual no Indeed. Salva cookies para buscas futuras. |
 | **Busca com limite** | `npm run dev -- search 10 "<query>"` | Busca pelo termo livre, processando no máximo N vagas. Funciona também com `linkedin` e `indeed`. |
 | **Busca (alias PT)** | `npm run dev -- busca "<query>"` | Alias em português para `search` (LinkedIn + Indeed). |
 

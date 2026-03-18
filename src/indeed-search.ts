@@ -485,9 +485,7 @@ async function loginIndeedManual(): Promise<boolean> {
  * Se expirados ou inexistentes, abre headed browser para login manual.
  */
 async function ensureIndeedSession(context: BrowserContext): Promise<boolean> {
-  const cookies = loadCookies();
-  if (cookies) {
-    await addCookiesSafe(context, cookies);
+  {
     const page = await context.newPage();
     try {
       await page.goto(`${INDEED_BASE_URL}/`, {
@@ -504,12 +502,11 @@ async function ensureIndeedSession(context: BrowserContext): Promise<boolean> {
         }
       }
       console.log('  🍪 Cookies do Indeed expirados ou inválidos.');
+      return false;
     } finally {
       await page.close().catch(() => undefined);
     }
   }
-
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -603,53 +600,52 @@ async function searchIndeedPaginated(
 // ---------------------------------------------------------------------------
 
 /**
+ * Login manual no Indeed via Chrome standalone.
+ * Abre Chrome limpo (sem Playwright/CDP) para o usuário fazer login.
+ * Após fechar o Chrome, extrai cookies do SQLite do perfil.
+ * Chamado via: npm run dev -- indeed-login
+ */
+export async function indeedLogin(): Promise<boolean> {
+  return loginIndeedManual();
+}
+
+/**
  * Busca vagas no Indeed Brasil com filtro de trabalho remoto.
  *
- * Fluxo:
- *   1. Tenta restaurar sessão via cookies (data/indeed-cookies.json)
- *   2. Se cookies válidos → busca diretamente
- *   3. Se cookies expirados/inexistentes ou Cloudflare bloquear:
- *      → Abre navegador visível para login manual (Google, Apple, código por email)
- *      → Salva cookies após login
- *      → Continua com busca autenticada
+ * Usa cookies salvos em data/indeed-cookies.json (gerados via indeed-login).
+ * Se não houver cookies ou Cloudflare bloquear, retorna [] silenciosamente.
+ *
+ * Indeed usa Cloudflare agressivo que bloqueia Playwright headless mesmo
+ * com cookies válidos. A busca pode não retornar resultados em ambientes
+ * onde o Cloudflare detecta automação.
  */
 export async function searchIndeedJobs(query: string): Promise<string[]> {
+  const cookies = loadCookies();
+  if (!cookies) {
+    console.log('  ⚠️  Sem cookies do Indeed. Execute: npm run dev -- indeed-login');
+    return [];
+  }
+
   const maxResults = getMaxIndeedResults();
   let browser: Browser | undefined;
 
   try {
     browser = await launchBrowser();
-    let context = await createContext(browser);
+    const context = await createContext(browser);
+    await addCookiesSafe(context, cookies);
 
-    let sessionValid = await ensureIndeedSession(context);
-
-    if (!sessionValid) {
-      // Fechar browser headless e abrir headed para login manual
-      await browser.close().catch(() => undefined);
-      browser = undefined;
-
-      const loginSuccess = await loginIndeedManual();
-
-      browser = await launchBrowser();
-      context = await createContext(browser);
-
-      if (loginSuccess) {
-        const cookies = loadCookies();
-        if (cookies) {
-          await addCookiesSafe(context, cookies);
-          sessionValid = true;
-        }
-      }
-    }
-
-    if (!sessionValid) {
-      console.log('  ⚠️  Sem sessão do Indeed. Busca Indeed ignorada nesta execução.');
+    const sessionOk = await ensureIndeedSession(context);
+    if (!sessionOk) {
+      console.log('  ⚠️  Cookies do Indeed expirados. Execute: npm run dev -- indeed-login');
       return [];
     }
 
     const jobKeys = await searchIndeedPaginated(query, context, maxResults);
     console.log(`  📄 Indeed: ${jobKeys.length} vagas únicas encontradas.`);
     return jobKeys.map((key) => `${INDEED_BASE_URL}/viewjob?jk=${key}`);
+  } catch (err) {
+    console.log(`  ⚠️  Erro na busca Indeed: ${(err as Error).message}`);
+    return [];
   } finally {
     if (browser) {
       await browser.close().catch(() => undefined);

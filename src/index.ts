@@ -6,7 +6,7 @@ import { adaptResume } from './adapter';
 // composeEmail é opcional; atualmente não é usado no fluxo principal
 // import { composeEmail } from './composer';
 import { searchJobs, SEARCH_KEYWORDS, SearchCategory } from './search';
-import { searchIndeedJobs } from './indeed-search';
+import { searchIndeedJobs, indeedLogin } from './indeed-search';
 import { saveJobUrl, saveJobDetails } from './storage';
 
 const requiredEnvVars = ['OPENAI_API_KEY'] as const;
@@ -119,6 +119,17 @@ async function main() {
     }
 
     console.log('\n✅ Execução das buscas padrão concluída.');
+    return;
+  }
+
+  // Comando indeed-login: abre Chrome para login manual no Indeed
+  if (mode === 'indeed-login') {
+    const success = await indeedLogin();
+    if (success) {
+      console.log('✅ Login no Indeed concluído. Cookies salvos.');
+    } else {
+      console.log('❌ Login no Indeed falhou.');
+    }
     return;
   }
 
