@@ -1,6 +1,7 @@
 import { chromium as stealthChromium } from 'playwright-extra';
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { execSync, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveQuery } from './search';
@@ -135,20 +136,93 @@ async function isCloudflareBlocked(page: Page): Promise<boolean> {
 
 const CHROME_PROFILE_PATH = path.join(__dirname, '..', 'data', 'indeed-chrome-profile');
 
+// ---------------------------------------------------------------------------
+// Chrome standalone (sem Playwright controlando)
+// ---------------------------------------------------------------------------
+
+function findChromePath(): string | null {
+  const isMac = process.platform === 'darwin';
+  const isWin = process.platform === 'win32';
+
+  if (isMac) {
+    const p = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    if (fs.existsSync(p)) return p;
+  }
+
+  if (isWin) {
+    const dirs = [
+      process.env['PROGRAMFILES'] || '',
+      process.env['PROGRAMFILES(X86)'] || '',
+      process.env['LOCALAPPDATA'] || '',
+    ];
+    for (const dir of dirs) {
+      const p = path.join(dir, 'Google', 'Chrome', 'Application', 'chrome.exe');
+      if (fs.existsSync(p)) return p;
+    }
+  }
+
+  const names = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium'];
+  for (const name of names) {
+    try {
+      const p = execSync(`which ${name} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+      if (p) return p;
+    } catch { continue; }
+  }
+
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isIndeedLoggedInUrl(href: string): boolean {
+  return href.includes('indeed.com') &&
+         !href.includes('/auth') &&
+         !href.includes('login') &&
+         !href.includes('challenge') &&
+         !href.includes('verify') &&
+         !href.includes('secure.indeed');
+}
+
 /**
- * Abre o Chrome real com perfil persistente para login manual no Indeed.
+ * Detecta port de debugging via stdout/stderr do Chrome.
+ * Chrome imprime: "DevTools listening on ws://127.0.0.1:<port>/..."
+ */
+function waitForDebugPort(chromeProcess: ChildProcess, timeoutMs = 15000): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Chrome startup timeout')), timeoutMs);
+
+    const handler = (data: Buffer) => {
+      const match = data.toString().match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//);
+      if (match) {
+        clearTimeout(timeout);
+        resolve(parseInt(match[1], 10));
+      }
+    };
+
+    chromeProcess.stderr?.on('data', handler);
+    chromeProcess.stdout?.on('data', handler);
+    chromeProcess.on('exit', () => {
+      clearTimeout(timeout);
+      reject(new Error('Chrome fechou antes de disponibilizar porta de debug'));
+    });
+  });
+}
+
+/**
+ * Abre Chrome como processo independente (sem Playwright controlando).
  *
- * Usa launchPersistentContext com channel:'chrome' para:
- * - Lançar o Chrome real do sistema (fingerprint TLS correta)
- * - Usar um perfil persistente (parece um browser real de usuário)
- * - Não injetar user-agent/viewport artificiais (menos detecção)
- * - --disable-blink-features=AutomationControlled remove flag de automação
+ * Playwright injecta CDP session que o Cloudflare Turnstile detecta,
+ * causando loop infinito no "Confirme que é humano" (erro 600010).
  *
- * Isso contorna o Cloudflare Turnstile que detecta Playwright pelo CDP,
- * navigator.webdriver e fingerprint do Chromium empacotado.
- *
- * Indeed Brasil não tem login com senha — usa Google, Apple ou código por email.
- * Após autenticação, salva cookies em data/indeed-cookies.json.
+ * Aqui o Chrome roda 100% limpo, sem nenhuma automação:
+ * 1. Spawna Chrome como child_process com --remote-debugging-port
+ * 2. Chrome abre limpo — Cloudflare não detecta automação
+ * 3. Usuário faz login manualmente (Google, Apple, código por email)
+ * 4. Monitora /json/list via HTTP REST (não cria CDP session)
+ * 5. Quando login detectado, conecta CDP só para extrair cookies
+ * 6. Salva cookies e fecha Chrome
  */
 async function loginIndeedManual(): Promise<boolean> {
   console.log('');
@@ -156,55 +230,68 @@ async function loginIndeedManual(): Promise<boolean> {
   console.log('  ℹ️  Faça login na janela que será aberta (Google, Apple ou código por email).');
   console.log(`  ⏳ Timeout: ${MANUAL_LOGIN_TIMEOUT_MS / 60000} min`);
 
-  let context: BrowserContext | undefined;
+  const chromePath = findChromePath();
+  if (!chromePath) {
+    console.log('  ❌ Chrome não encontrado. Instale o Google Chrome e tente novamente.');
+    return false;
+  }
+
+  fs.mkdirSync(CHROME_PROFILE_PATH, { recursive: true });
+
+  let chromeProcess: ChildProcess | undefined;
 
   try {
-    fs.mkdirSync(CHROME_PROFILE_PATH, { recursive: true });
+    chromeProcess = spawn(chromePath, [
+      `--user-data-dir=${CHROME_PROFILE_PATH}`,
+      '--remote-debugging-port=0',
+      '--no-first-run',
+      '--no-default-browser-check',
+      INDEED_LOGIN_URL,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-    context = await chromium.launchPersistentContext(CHROME_PROFILE_PATH, {
-      headless: false,
-      channel: 'chrome',
-      args: [],
-      viewport: null,
-      locale: 'pt-BR',
-      timezoneId: 'America/Sao_Paulo',
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    const port = await waitForDebugPort(chromeProcess);
+    console.log(`  🔌 Chrome aberto (debug port: ${port}). Aguardando login...`);
 
-    const page = context.pages()[0] || await context.newPage();
-    await page.goto(INDEED_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const startTime = Date.now();
+    while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
+      if (chromeProcess.exitCode !== null) {
+        console.log('  ❌ Chrome foi fechado antes do login.');
+        return false;
+      }
 
-    try {
-      await page.waitForURL(
-        (url) => {
-          const href = url.toString();
-          return href.includes('indeed.com') &&
-                 !href.includes('/auth') &&
-                 !href.includes('login') &&
-                 !href.includes('challenge') &&
-                 !href.includes('verify') &&
-                 !href.includes('secure.indeed');
-        },
-        { timeout: MANUAL_LOGIN_TIMEOUT_MS },
-      );
-      console.log('  ✅ Login no Indeed bem-sucedido! Salvando sessão...');
-      saveCookies(await context.cookies());
-      return true;
-    } catch {
-      console.log('  ❌ Timeout aguardando login manual no Indeed.');
-      return false;
+      try {
+        const resp = await fetch(`http://127.0.0.1:${port}/json/list`);
+        const pages: any[] = await resp.json();
+        const loggedIn = pages.some((p) => isIndeedLoggedInUrl(p.url || ''));
+
+        if (loggedIn) {
+          console.log('  ✅ Login no Indeed detectado! Extraindo cookies...');
+
+          const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+          const contexts = browser.contexts();
+          if (contexts.length > 0) {
+            saveCookies(await contexts[0].cookies());
+            console.log('  🍪 Cookies salvos em data/indeed-cookies.json');
+          }
+          await browser.close().catch(() => undefined);
+          return true;
+        }
+      } catch {
+        // Chrome pode ter fechado ou porta não respondeu ainda
+      }
+
+      await sleep(2000);
     }
+
+    console.log('  ❌ Timeout aguardando login manual no Indeed.');
+    return false;
   } catch (err: any) {
     const msg = err?.message ?? String(err);
-    if (msg.includes('Target closed') || msg.includes('Browser closed')) {
-      console.log('  ❌ Navegador foi fechado antes da conclusão do login.');
-    } else {
-      console.log(`  ❌ Erro ao abrir navegador para login: ${msg}`);
-    }
+    console.log(`  ❌ Erro no login manual: ${msg}`);
     return false;
   } finally {
-    if (context) {
-      await context.close().catch(() => undefined);
+    if (chromeProcess && chromeProcess.exitCode === null) {
+      chromeProcess.kill();
     }
   }
 }
