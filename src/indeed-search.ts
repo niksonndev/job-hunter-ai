@@ -367,16 +367,17 @@ function extractCookiesFromChromeProfile(): any[] | null {
         ? Number(expiresUtc / 1000000n - CHROME_EPOCH_OFFSET)
         : -1;
 
-      cookies.push({
+      const cookie: Record<string, any> = {
         name: row.name,
         value: cookieValue,
         domain: row.host_key,
-        path: row.path,
-        expires,
+        path: row.path || '/',
         secure: !!row.is_secure,
         httpOnly: !!row.is_httponly,
         sameSite: SAMESITE_MAP[row.samesite] || 'None',
-      });
+      };
+      if (expires > 0) cookie.expires = expires;
+      cookies.push(cookie);
     }
 
     return cookies;
