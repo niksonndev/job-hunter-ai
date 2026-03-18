@@ -18,7 +18,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@types/cheerio": "^0.22.35",
     "better-sqlite3": "^12.8.0",
+    "cheerio": "^1.2.0",
     "dotenv": "^17.3.1",
     "openai": "^6.29.0",
     "playwright": "^1.58.2",
