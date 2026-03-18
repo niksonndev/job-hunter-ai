@@ -164,12 +164,7 @@ async function loginIndeedManual(): Promise<boolean> {
     context = await chromium.launchPersistentContext(CHROME_PROFILE_PATH, {
       headless: false,
       channel: 'chrome',
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-      ],
+      args: [],
       viewport: null,
       locale: 'pt-BR',
       timezoneId: 'America/Sao_Paulo',
