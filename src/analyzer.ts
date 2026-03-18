@@ -12,7 +12,7 @@ export interface AnalysisResult {
 
 const RESUME_PATH = process.env.RESUME_PATH || path.join(process.cwd(), 'data', 'nikson-curriculo-pt.md');
 
-const MAX_DESCRIPTION_CHARS = 4000;
+const MAX_DESCRIPTION_CHARS = 6000;
 const MAX_RETRIES = 2;
 const MIN_KEYWORDS = 5;
 const MAX_KEYWORDS = 15;
