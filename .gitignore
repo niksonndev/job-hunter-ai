@@ -20,7 +20,4 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
-
-# Saídas geradas
-data/outputs/*
-!data/outputs/.gitkeep
+data/
