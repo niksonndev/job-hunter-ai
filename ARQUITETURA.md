@@ -2,13 +2,52 @@
 
 Este projeto implementa um **agente de vagas** em Node.js + TypeScript que:
 
-- Faz scraping de vagas do LinkedIn, gerando um objeto `JobData`.
+- Faz scraping de vagas do **LinkedIn**, gerando um objeto `JobData`.
 - Analisa a compatibilidade entre vaga e currículo base, produzindo um `AnalysisResult`.
 - Adapta o currículo em Markdown com foco em ATS.
 - (Opcionalmente) gera um email de candidatura personalizado.
-- Orquestra tudo através de uma CLI única (`src/index.ts`) que pode operar em **modo URL única** ou **modo busca em lote**.
+- Orquestra tudo através de uma CLI única (`src/index.ts`) que pode operar em **modo URL única**, **modo busca manual** ou **modo busca em lote (batch)**.
 
 A arquitetura é composta por módulos coesos em `src/` responsáveis por scraping, busca, análise, adaptação de currículo, composição de email e storage local em SQLite.
+
+## Comandos da CLI
+
+Ponto de entrada: `src/index.ts` executado via `npm run dev`.
+
+### Modos de operação
+
+| Modo | Comando | Descrição |
+|------|---------|-----------|
+| **Batch padrão** | `npm run dev` | Itera pelas 4 categorias (20 keywords) no LinkedIn. |
+| **Categoria** | `npm run dev -- frontend` | Roda apenas as 5 keywords da categoria informada. |
+| | `npm run dev -- backend` | |
+| | `npm run dev -- fullstack` | |
+| | `npm run dev -- webAnalytics` | |
+| **URL única** | `npm run dev -- "<URL>"` | Processa uma vaga específica do LinkedIn: scrape → análise → adaptação de currículo. |
+| **Busca manual** | `npm run dev -- search "<query>"` | Busca no LinkedIn pelo termo livre informado. |
+| **Busca com limite** | `npm run dev -- search 10 "<query>"` | Busca pelo termo livre, processando no máximo N vagas. |
+| **Busca (alias PT)** | `npm run dev -- busca "<query>"` | Alias em português para `search`. |
+
+### Keywords de busca (SEARCH_KEYWORDS)
+
+Organizadas em 4 categorias com 5 keywords cada:
+
+| Categoria | Keywords |
+|-----------|----------|
+| **frontend** | React Developer, Frontend React TypeScript, Next.js Developer, Frontend Engineer, Angular Developer |
+| **backend** | Node.js Developer, Backend Engineer, Python Developer, Java Developer, Golang Developer |
+| **fullstack** | Fullstack Developer, Fullstack Engineer, Fullstack React Node, Fullstack TypeScript, Fullstack JavaScript |
+| **webAnalytics** | Google Tag Manager, Digital Analytics, Web Analytics, GA4 GTM, Analytics Engineer |
+
+No modo batch (`npm run dev` sem argumentos), todas as 20 keywords são executadas sequencialmente, agrupadas por categoria.
+
+### Scripts npm
+
+| Script | Comando | Descrição |
+|--------|---------|-----------|
+| `dev` | `ts-node src/index.ts` | Executa a CLI em modo desenvolvimento |
+| `build` | `tsc` | Compila TypeScript para `dist/` |
+| `test` | `echo ...` | Placeholder (sem testes automatizados) |
 
 ## Stack tecnológico completo
 
@@ -16,7 +55,7 @@ A arquitetura é composta por módulos coesos em `src/` responsáveis por scrapi
 - **Runtime**: Node.js
 - **Execução TS em desenvolvimento**: `ts-node`
 - **IA / LLM**: SDK oficial da OpenAI (`openai`) – modelos `gpt-4.1-mini` (análise) e `gpt-4.1`/equivalente (adaptação de currículo)
-- **Automação de browser / scraping**: `playwright`
+- **Automação de browser / scraping**: `playwright` + `playwright-extra` + `puppeteer-extra-plugin-stealth`
 - **Banco de dados**: SQLite via `better-sqlite3`
 - **Gerenciamento de dependências / scripts**: `npm`
 - **Configuração de ambiente**: `dotenv`
@@ -26,8 +65,14 @@ A arquitetura é composta por módulos coesos em `src/` responsáveis por scrapi
 
 Arquivo `.env` (baseado em `.env.example`):
 
-- `OPENAI_API_KEY`: chave de API da OpenAI usada para chamadas de LLM.
-- `DEFAULT_SEARCH_LIMIT`: número padrão máximo de vagas retornadas na busca pública do LinkedIn (usada em `search.ts`).
+| Variável | Obrigatória | Descrição |
+|----------|:-----------:|-----------|
+| `OPENAI_API_KEY` | Sim | Chave de API da OpenAI para análise e adaptação de currículo. |
+| `DEFAULT_SEARCH_LIMIT` | Não | Limite padrão de vagas processadas por busca (override via CLI: `search 10 "query"`). |
+| `MAX_SEARCH_RESULTS` | Não | Máximo de resultados na paginação do LinkedIn (padrão: 1000). |
+| `LINKEDIN_EMAIL` | Não | Email para login no LinkedIn (mais resultados via busca autenticada). |
+| `LINKEDIN_PASSWORD` | Não | Senha do LinkedIn. |
+| `CAPSOLVER_API_KEY` | Não | API key do CapSolver para bypass automático de CAPTCHA no login do LinkedIn. |
 
 Qualquer nova variável de ambiente deve ser documentada em `.env.example` e descrita nesta seção.
 
@@ -36,17 +81,19 @@ Qualquer nova variável de ambiente deve ser documentada em `.env.example` e des
 Diretórios principais:
 
 - `src/`
-  - `scraper.ts`: lê uma URL de vaga do LinkedIn e retorna `JobData`.
-  - `search.ts`: executa buscas públicas de vagas no LinkedIn e retorna URLs canônicas.
-  - `analyzer.ts`: analisa compatibilidade currículo x vaga e retorna `AnalysisResult`.
-  - `adapter.ts`: reescreve o currículo em Markdown otimizado para ATS.
-  - `composer.ts`: gera email de candidatura (opcional).
-  - `storage.ts`: gerencia o banco SQLite (`data/jobs.db`) para deduplicar vagas.
   - `index.ts`: ponto de entrada da CLI, orquestra todo o pipeline.
+  - `search.ts`: busca de vagas no LinkedIn (autenticada + guest). Define `SEARCH_KEYWORDS` (4 categorias × 5 keywords). Exporta `resolveQuery` e `SearchCategory`.
+  - `scraper.ts`: scraping de uma vaga individual do LinkedIn.
+  - `captcha-solver.ts`: integração com CapSolver para bypass automático de CAPTCHA no LinkedIn.
+  - `analyzer.ts`: analisa compatibilidade currículo × vaga e retorna `AnalysisResult`.
+  - `adapter.ts`: reescreve o currículo em Markdown otimizado para ATS.
+  - `composer.ts`: gera email de candidatura (opcional, desabilitado no fluxo principal).
+  - `storage.ts`: gerencia o banco SQLite (`data/jobs.db`) para deduplicar vagas.
 - `data/`
   - `nikson-curriculo-pt.md`: currículo base em português.
   - `nikson-curriculum-en.md`: currículo base em inglês (opcional).
   - `jobs.db`: banco SQLite com URLs de vagas já processadas.
+  - `linkedin-cookies.json`: cookies de sessão do LinkedIn (gerado automaticamente).
   - `outputs/`: destino de currículos adaptados (`*-resume.md`) e emails (`*-email.txt`).
 
 ## Serviços, jobs e models de cada app
@@ -54,26 +101,29 @@ Diretórios principais:
 ### Serviços principais
 
 - `scrapeJob(url: string): Promise<JobData>` em `scraper.ts`
-  - Responsável por abrir a página da vaga, aguardar os seletores críticos e normalizar o texto.
+  - Abre a página da vaga no LinkedIn, aguarda seletores e extrai dados.
 - `searchJobs(query: string): Promise<string[]>` em `search.ts`
-  - Monta a URL de busca pública do LinkedIn com filtros (Brasil, remoto, últimos 30 dias, pleno+sênior, full‑time) e retorna URLs canônicas de vagas.
+  - Busca vagas no LinkedIn (autenticada + guest API). Filtros: Brasil, remoto, pleno+sênior. Usa `resolveQuery` para mapear keys de SEARCH_KEYWORDS para termos de busca.
 - `analyzeJob(job: JobData): Promise<AnalysisResult>` em `analyzer.ts`
   - Usa o currículo base + descrição da vaga para gerar score de compatibilidade e keywords ATS.
 - `adaptResume(job: JobData, analysis: AnalysisResult): Promise<string>` em `adapter.ts`
   - Reescreve o currículo em Markdown incorporando as keywords relevantes.
 - `composeEmail(job: JobData, analysis: AnalysisResult): Promise<string>` em `composer.ts`
-  - Gera um email de candidatura conciso e direto (opcional).
+  - Gera um email de candidatura conciso e direto (opcional, desabilitado).
 - `saveJobUrl(url: string): { inserted: boolean }` em `storage.ts`
   - Tenta inserir a URL no SQLite e indica se a vaga é nova ou já conhecida.
 
 ### Jobs / fluxos
 
-- **Job de URL única**
+- **Job de URL única** (`npm run dev -- "<URL>"`)
   - Entrada: URL de uma vaga do LinkedIn.
-  - Passos: `scrapeJob` → `analyzeJob` → (se relevante) `adaptResume` → (opcional) `composeEmail`.
-- **Job de busca em lote**
-  - Entrada: termo de busca (ex.: `"desenvolvedor backend node"`).
-  - Passos: `searchJobs` → `saveJobUrl` (para cada URL) → `scrapeJob` → `analyzeJob` → `adaptResume` (para vagas relevantes) → `composeEmail` (opcional).
+  - Passos: `scrapeJob` → `analyzeJob` → (se relevante) `adaptResume`.
+- **Job de busca manual** (`npm run dev -- search "<query>"`)
+  - Entrada: termo de busca livre (ex.: `"desenvolvedor backend node"`).
+  - Passos: `searchJobs` → para cada URL: `saveJobUrl` → `scrapeJob` → `analyzeJob` → `adaptResume` (se relevante).
+- **Job de busca batch** (`npm run dev` sem argumentos)
+  - Entrada: todas as 20 keywords de `SEARCH_KEYWORDS` (4 categorias × 5 keywords).
+  - Passos: para cada categoria → para cada keyword → mesmo fluxo de busca manual acima.
 
 ### Models principais
 

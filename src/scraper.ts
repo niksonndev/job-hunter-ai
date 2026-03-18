@@ -31,7 +31,6 @@ export async function scrapeJob(url: string): Promise<JobData> {
     page = await context.newPage();
     await page.goto(url, { waitUntil: 'networkidle' });
 
-    // Aguarda o elemento crítico carregar
     await page.waitForSelector('h1.top-card-layout__title');
 
     const rawTitle = await page.textContent('h1.top-card-layout__title');
@@ -49,7 +48,7 @@ export async function scrapeJob(url: string): Promise<JobData> {
       rawDescription
         ?.replace(/\s*Show more\s*/gi, '')
         .replace(/\s*Show less\s*/gi, '')
-        .replace(/\n{3,}/g, '\n\n') // colapsa linhas em branco excessivas
+        .replace(/\n{3,}/g, '\n\n')
         .trim() ?? '';
 
     return {
@@ -60,7 +59,6 @@ export async function scrapeJob(url: string): Promise<JobData> {
       url,
     };
   } finally {
-    // Garante que os recursos sejam liberados mesmo em caso de erro.
     if (page) {
       await page.close().catch(() => undefined);
     }

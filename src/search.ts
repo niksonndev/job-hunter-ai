@@ -26,23 +26,52 @@ const MANUAL_CAPTCHA_TIMEOUT_MS = 5 * 60 * 1000;
 type AuthResult = 'authenticated' | 'captcha_required' | 'failed';
 
 export const SEARCH_KEYWORDS = {
-  gtm: 'Google Tag Manager',
-  digitalAnalytics: 'Digital Analytics',
-  webAnalytics: 'Web Analytics',
-  ga4Gtm: 'GA4 GTM',
-  analyticsEngineer: 'Analytics Engineer',
-  reactDeveloper: 'React Developer',
-  frontendReactTs: 'Frontend React TypeScript',
-  nextJsDeveloper: 'Next.js Developer',
-  frontendEngineer: 'Frontend Engineer',
-  reactTs: 'React TypeScript',
+  frontend: {
+    reactDeveloper: 'React Developer',
+    frontendReactTs: 'Frontend React TypeScript',
+    nextJsDeveloper: 'Next.js Developer',
+    frontendEngineer: 'Frontend Engineer',
+    angularDeveloper: 'Angular Developer',
+  },
+  backend: {
+    nodeJsDeveloper: 'Node.js Developer',
+    backendEngineer: 'Backend Engineer',
+    pythonDeveloper: 'Python Developer',
+    javaDeveloper: 'Java Developer',
+    golangDeveloper: 'Golang Developer',
+  },
+  fullstack: {
+    fullstackDeveloper: 'Fullstack Developer',
+    fullstackEngineer: 'Fullstack Engineer',
+    fullstackReactNode: 'Fullstack React Node',
+    fullstackTypeScript: 'Fullstack TypeScript',
+    fullstackJavaScript: 'Fullstack JavaScript',
+  },
+  webAnalytics: {
+    gtm: 'Google Tag Manager',
+    digitalAnalytics: 'Digital Analytics',
+    webAnalyticsKeyword: 'Web Analytics',
+    ga4Gtm: 'GA4 GTM',
+    analyticsEngineer: 'Analytics Engineer',
+  },
 } as const;
 
-type SearchKeywordKey = keyof typeof SEARCH_KEYWORDS;
+export type SearchCategory = keyof typeof SEARCH_KEYWORDS;
 
-function resolveQuery(query: string): string {
-  const key = query as SearchKeywordKey;
-  return SEARCH_KEYWORDS[key] ?? query;
+function buildFlatKeywords(): Record<string, string> {
+  const flat: Record<string, string> = {};
+  for (const category of Object.values(SEARCH_KEYWORDS)) {
+    for (const [key, value] of Object.entries(category)) {
+      flat[key] = value;
+    }
+  }
+  return flat;
+}
+
+const FLAT_KEYWORDS = buildFlatKeywords();
+
+export function resolveQuery(query: string): string {
+  return FLAT_KEYWORDS[query] ?? query;
 }
 
 function buildSearchParams(rawQuery: string): URLSearchParams {
