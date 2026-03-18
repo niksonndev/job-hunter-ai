@@ -206,26 +206,86 @@ function findCookieDbPath(): string | null {
   return null;
 }
 
+let _cachedDecryptionKey: Buffer | null = null;
+
+/**
+ * Windows: Chrome usa AES-256-GCM com chave armazenada no Local State,
+ * criptografada com DPAPI. Precisamos chamar PowerShell para descriptografar.
+ */
+function getWindowsChromeKey(): Buffer {
+  const localStatePath = path.join(CHROME_PROFILE_PATH, 'Local State');
+  if (!fs.existsSync(localStatePath)) {
+    throw new Error(`Local State não encontrado: ${localStatePath}`);
+  }
+
+  const localState = JSON.parse(fs.readFileSync(localStatePath, 'utf-8'));
+  const encryptedKeyB64: string = localState?.os_crypt?.encrypted_key;
+  if (!encryptedKeyB64) {
+    throw new Error('encrypted_key não encontrada no Local State');
+  }
+
+  const encryptedKeyFull = Buffer.from(encryptedKeyB64, 'base64');
+  // Remove o prefixo "DPAPI" (5 bytes)
+  const encryptedKey = encryptedKeyFull.subarray(5);
+  const encryptedKeyB64Clean = encryptedKey.toString('base64');
+
+  const psScript = `
+    Add-Type -AssemblyName System.Security
+    $encrypted = [Convert]::FromBase64String("${encryptedKeyB64Clean}")
+    $decrypted = [System.Security.Cryptography.ProtectedData]::Unprotect(
+      $encrypted, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+    )
+    [Convert]::ToBase64String($decrypted)
+  `.trim();
+
+  const result = execSync(
+    `powershell -NoProfile -NonInteractive -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`,
+    { encoding: 'utf-8' },
+  ).trim();
+
+  return Buffer.from(result, 'base64');
+}
+
 function getChromeDecryptionKey(): Buffer {
-  if (process.platform === 'darwin') {
+  if (_cachedDecryptionKey) return _cachedDecryptionKey;
+
+  if (process.platform === 'win32') {
+    _cachedDecryptionKey = getWindowsChromeKey();
+  } else if (process.platform === 'darwin') {
     const password = execSync(
       'security find-generic-password -s "Chrome Safe Storage" -w',
       { encoding: 'utf-8' },
     ).trim();
-    return crypto.pbkdf2Sync(password, 'saltysalt', 1003, 16, 'sha1');
+    _cachedDecryptionKey = crypto.pbkdf2Sync(password, 'saltysalt', 1003, 16, 'sha1');
+  } else {
+    _cachedDecryptionKey = crypto.pbkdf2Sync('peanuts', 'saltysalt', 1, 16, 'sha1');
   }
-  // Linux e outros: chave fixa derivada de "peanuts"
-  return crypto.pbkdf2Sync('peanuts', 'saltysalt', 1, 16, 'sha1');
+
+  return _cachedDecryptionKey;
 }
 
 function decryptChromeValue(encryptedValue: Buffer): string {
   if (!encryptedValue || encryptedValue.length === 0) return '';
 
   const prefix = encryptedValue.subarray(0, 3).toString('utf-8');
-  if (prefix !== 'v10' && prefix !== 'v11') {
+  if (prefix !== 'v10' && prefix !== 'v11' && prefix !== 'v20') {
     return encryptedValue.toString('utf-8');
   }
 
+  if (process.platform === 'win32') {
+    // Windows Chrome v80+: v10 + nonce(12) + ciphertext + tag(16) → AES-256-GCM
+    const nonce = encryptedValue.subarray(3, 3 + 12);
+    const ciphertextWithTag = encryptedValue.subarray(3 + 12);
+    const tag = ciphertextWithTag.subarray(ciphertextWithTag.length - 16);
+    const ciphertext = ciphertextWithTag.subarray(0, ciphertextWithTag.length - 16);
+
+    const key = getChromeDecryptionKey();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf-8');
+  }
+
+  // Linux/macOS: v10 + ciphertext → AES-128-CBC
   const encrypted = encryptedValue.subarray(3);
   const key = getChromeDecryptionKey();
   const iv = Buffer.alloc(16, ' ');
