@@ -6,6 +6,7 @@ import { analyzeJob } from './analyzer';
 // import { adaptResume } from './adapter';
 // composeEmail é opcional; atualmente não é usado no fluxo principal
 // import { composeEmail } from './composer';
+import { filterJob } from './filter';
 import { searchJobs, SEARCH_KEYWORDS, SearchCategory } from './search';
 import { saveJobUrl, saveJobDetails } from './storage';
 
@@ -41,6 +42,12 @@ async function processSearchQuery(rawQuery: string, limit?: number) {
       console.log(`\n🔍 Processando vaga: ${url}`);
 
       const job = await scrapeJob(url);
+
+      const filter = filterJob(job);
+      if (!filter.passed) {
+        console.log(`🚫 Filtrada: ${filter.reason} — pulando.`);
+        continue;
+      }
 
       console.log('📊 Analisando compatibilidade...');
       const analysis = await analyzeJob(job);
@@ -128,6 +135,12 @@ async function main() {
 
     console.log('🔍 Buscando vaga única...');
     const job = await scrapeJob(jobUrl);
+
+    const filter = filterJob(job);
+    if (!filter.passed) {
+      console.log(`🚫 Filtrada: ${filter.reason} — encerrando.`);
+      return;
+    }
 
     console.log('📊 Analisando compatibilidade...');
     const analysis = await analyzeJob(job);
