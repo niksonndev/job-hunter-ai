@@ -14,14 +14,14 @@ export const SEARCH_KEYWORDS = {
     frontendReactTs: 'Frontend React TypeScript',
     nextJsDeveloper: 'Next.js Developer',
     frontendEngineer: 'Frontend Engineer',
-    angularDeveloper: 'Angular Developer',
+    /* angularDeveloper: 'Angular Developer', */
   },
   backend: {
     nodeJsDeveloper: 'Node.js Developer',
     backendEngineer: 'Backend Engineer',
-    pythonDeveloper: 'Python Developer',
+    /* pythonDeveloper: 'Python Developer',
     javaDeveloper: 'Java Developer',
-    golangDeveloper: 'Golang Developer',
+    golangDeveloper: 'Golang Developer', */
   },
   fullstack: {
     fullstackDeveloper: 'Fullstack Developer',
