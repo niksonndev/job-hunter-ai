@@ -156,8 +156,66 @@ DEFAULT_SEARCH_LIMIT=20
 
 No `package.json`:
 
-- **`npm run dev`** – roda o `src/index.ts` com `ts-node` (modo desenvolvimento).
+- **`npm run dev`** – roda o `src/index.ts` com `ts-node` (modo desenvolvimento / CLI principal).
 - **`npm run build`** – compila TypeScript para `dist/` usando `tsc`.
+- **`npm test`** – placeholder atual (apenas imprime "Nenhum teste definido").
+
+#### Opções de execução do `npm run dev`
+
+O comportamento depende do primeiro argumento após `--`:
+
+- **Sem argumentos**: roda buscas padrão em lote para todas as categorias de `SEARCH_KEYWORDS`.
+  - Exemplo:
+    ```bash
+    npm run dev
+    ```
+
+- **Categoria** (`frontend`, `backend`, `fullstack`, `webAnalytics`): roda só aquela categoria.
+  - Exemplo:
+    ```bash
+    npm run dev -- frontend
+    ```
+
+- **Busca por termo** (`search` ou `busca`): executa busca no LinkedIn e processa as vagas encontradas.
+  - Exemplos:
+    ```bash
+    npm run dev -- search "React Developer"
+    npm run dev -- busca "engenheiro de dados"
+    ```
+
+- **Busca com limite explícito**: `search|busca <limite> <termo>`.
+  - Exemplo:
+    ```bash
+    npm run dev -- search 10 "React Developer"
+    ```
+
+- **URL única de vaga**: qualquer argumento que não seja categoria e nem `search|busca` é tratado como URL.
+  - Exemplo:
+    ```bash
+    npm run dev -- "https://www.linkedin.com/jobs/view/4371177488"
+    ```
+
+#### Variáveis que influenciam os scripts
+
+- `OPENAI_API_KEY` (obrigatória para análise com IA).
+- `DEFAULT_SEARCH_LIMIT` (limite padrão quando você não passa limite no comando).
+- `MAX_SEARCH_RESULTS` (limite máximo de URLs retornadas pela busca).
+
+#### Integração opcional com Google Sheets
+
+Quando configurada, cada vaga relevante salva no SQLite também é adicionada na planilha:
+
+- `GOOGLE_SHEETS_SPREADSHEET_ID`
+- `GOOGLE_SHEETS_WORKSHEET_NAME` (ex.: `jobs`)
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
+
+Observação sobre a chave privada no `.env`:
+
+- mantenha entre aspas duplas e com `\n` literal, por exemplo:
+  ```bash
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+  ```
 
 ### Como rodar o agente ponta a ponta
 
