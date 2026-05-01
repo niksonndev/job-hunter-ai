@@ -1,6 +1,7 @@
 import {
   getOrCreateSession,
   invalidateSession,
+  LinkedInSession,
 } from './linkedin-session';
 import {
   searchGuestHttp,
@@ -51,6 +52,7 @@ function buildFlatKeywords(): Record<string, string> {
   return flat;
 }
 
+// Caching de FLAT_KEYWORDS
 const FLAT_KEYWORDS = buildFlatKeywords();
 
 export function resolveQuery(query: string): string {
@@ -62,6 +64,7 @@ function getMaxSearchResults(): number {
   if (envVal && !Number.isNaN(Number(envVal)) && Number(envVal) > 0) {
     return Math.floor(Number(envVal));
   }
+  console.warn('MAX_SEARCH_RESULTS não configurado ou inválido. Usando valor padrão de 1000.');
   return 1000;
 }
 
@@ -75,6 +78,21 @@ function buildSearchUrl(rawQuery: string, start = 0): string {
     start: String(start),
   });
   return `https://www.linkedin.com/jobs/search/?${params.toString()}`;
+}
+
+async function searchAuthenticated(session: LinkedInSession, query: string, maxResults: number): Promise<string[]> {
+  if (session.voyagerQueryId) {
+    const voyagerResult = await searchAuthenticatedHttp(session, query, maxResults);
+    return voyagerResult;
+  } else {
+    const htmlResult = await searchAuthenticatedHtmlHttp(session, query, maxResults);
+    return htmlResult;
+  }
+}
+
+async function searchGuest(query: string, maxResults: number): Promise<string[]> {
+  const guestIds = await searchGuestHttp(query, maxResults);
+  return guestIds;
 }
 
 /**
@@ -93,7 +111,9 @@ function buildSearchUrl(rawQuery: string, start = 0): string {
 export async function searchJobs(query: string): Promise<string[]> {
   const resolvedQuery = resolveQuery(query);
   const maxResults = getMaxSearchResults();
-  const mergedIds = new Set<string>();
+  let mergedIds = new Set<string>();
+  let page = 0;
+  const limitPerPage = 25; // Número de resultados por página
 
   const session = await getOrCreateSession();
 
@@ -101,39 +121,34 @@ export async function searchJobs(query: string): Promise<string[]> {
     console.log('  🔍 Busca autenticada via HTTP...');
 
     try {
-      if (session.voyagerQueryId) {
-        const voyagerResult = await searchAuthenticatedHttp(session, resolvedQuery, maxResults);
+      while (mergedIds.size < maxResults) {
+        const start = page * limitPerPage;
+        const result = await searchAuthenticated(session, resolvedQuery, limitPerPage);
 
-        for (const id of voyagerResult.ids) mergedIds.add(id);
-        console.log(`  📊 Voyager API: ${voyagerResult.ids.length} vagas`);
+        for (const id of result.ids) mergedIds.add(id);
+        console.log(`  📊 Página ${page + 1}: ${result.ids.length} vagas`);
 
-        if (voyagerResult.sessionExpired) {
+        if (result.sessionExpired) {
           console.log('  🔄 Sessão expirada, invalidando para renovação futura...');
           invalidateSession();
+          break;
         }
-      } else {
-        console.log('  📄 Voyager QueryID indisponível, usando HTML auth...');
-        const htmlResult = await searchAuthenticatedHtmlHttp(session, resolvedQuery, maxResults);
 
-        for (const id of htmlResult.ids) mergedIds.add(id);
-        console.log(`  📊 Auth HTML: ${htmlResult.ids.length} vagas`);
-
-        if (htmlResult.sessionExpired) {
-          invalidateSession();
-        }
+        page++;
       }
     } catch (err: any) {
-      console.log(`  ⚠️  Erro na busca autenticada: ${err?.message ?? err}`);
+      console.error(`  ⚠️  Erro na busca autenticada: ${err?.message ?? 'Erro desconhecido'}`);
+      throw err; // Reta o erro para que possa ser capturado por chamadores externos, se necessário.
     }
   }
 
   console.log('  🔍 Complementando com busca guest (API pública HTTP)...');
-  const guestIds = await searchGuestHttp(resolvedQuery, maxResults);
+  const guestIds = await searchGuest(resolvedQuery, maxResults);
   const guestNew = guestIds.filter((id) => !mergedIds.has(id));
   for (const id of guestIds) mergedIds.add(id);
 
   if (session) {
-    console.log(`  📊 Guest: ${guestIds.length} vagas (+${guestNew.length} novas)`);
+    console.log(`  📊 Guest: ${guestIds.length} vagas (+${guestNew.length} novas)`); // eslint-disable-line
   }
 
   const jobIds = Array.from(mergedIds);

@@ -11,6 +11,14 @@ interface SheetsConfig {
   privateKey: string;
 }
 
+// Support both old format (relevant: boolean) and new format (score: 0-100)
+interface AnalysisResultLegacy {
+  relevant: boolean;
+  category: string;
+}
+
+type AnalysisForSheets = AnalysisResult | AnalysisResultLegacy;
+
 function readSheetsConfig(): SheetsConfig | null {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
   const worksheetName = process.env.GOOGLE_SHEETS_WORKSHEET_NAME?.trim();
@@ -50,19 +58,37 @@ export function isSheetsEnabled(): boolean {
   return readSheetsConfig() !== null;
 }
 
-export async function appendJobToSheet(job: JobData, analysis: AnalysisResult): Promise<void> {
+/**
+ * Append job to Google Sheets
+ * PRODUCTION: Supports both old and new analysis formats
+ */
+export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets): Promise<void> {
   const config = readSheetsConfig();
   if (!config) {
     throw new Error(
-      'Configuração do Google Sheets incompleta. Defina GOOGLE_SHEETS_SPREADSHEET_ID, GOOGLE_SHEETS_WORKSHEET_NAME, GOOGLE_SERVICE_ACCOUNT_EMAIL e GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.',
+      'Incomplete Google Sheets config. Set GOOGLE_SHEETS_SPREADSHEET_ID, GOOGLE_SHEETS_WORKSHEET_NAME, GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.'
     );
   }
 
   const sheets = getSheetsClient(config);
 
+  // Determine relevance and score from analysis object
+  let relevant: string;
+  let score: string;
+
+  if ('score' in analysis) {
+    // New format
+    relevant = analysis.score >= 60 ? 'true' : 'false';
+    score = String(analysis.score);
+  } else {
+    // Legacy format
+    relevant = analysis.relevant ? 'true' : 'false';
+    score = 'N/A';
+  }
+
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
-    range: `${config.worksheetName}!A:F`,
+    range: `${config.worksheetName}!A:H`,
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
@@ -72,7 +98,9 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisResult): 
           job.url,
           job.title,
           job.company,
-          analysis.relevant ? 'true' : 'false',
+          job.location,
+          relevant,
+          score,
           analysis.category,
         ],
       ],

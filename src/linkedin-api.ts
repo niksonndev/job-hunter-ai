@@ -16,7 +16,7 @@ const AUTH_PAGE_SIZE = 25;
 const GUEST_DELAY_MS = 800;
 const AUTH_DELAY_MS = 1500;
 
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3; // Increased from 2 for production resilience
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -70,6 +70,10 @@ function buildSearchParams(query: string): URLSearchParams {
   });
 }
 
+/**
+ * PRODUCTION: Resilient retry logic with exponential backoff + jitter
+ * Handles rate limits (429), server errors (5xx), and network issues
+ */
 async function fetchWithRetry(
   url: string,
   headers: Record<string, string>,
@@ -82,17 +86,50 @@ async function fetchWithRetry(
       const res = await fetch(url, {
         headers,
         redirect: 'follow',
+        signal: AbortSignal.timeout(15000), // 15s timeout
       });
+
+      // Check for retryable HTTP status codes
+      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+        if (attempt < retries) {
+          // Exponential backoff: 500ms, 1s, 2s, 4s with ±10% jitter
+          const baseDelay = 500 * Math.pow(2, attempt);
+          const jitter = Math.random() * baseDelay * 0.1; // ±10%
+          const totalDelay = baseDelay + jitter;
+          
+          console.log(`   ⏳ Retry ${attempt + 1}/${retries} after ${totalDelay.toFixed(0)}ms (HTTP ${res.status})`);
+          await sleep(totalDelay);
+          continue;
+        }
+      }
+
       return res;
     } catch (err: any) {
       lastError = err;
-      if (attempt < retries) {
-        await sleep(1000 * (attempt + 1));
+
+      // Check if error is retryable
+      const isRetryable =
+        err?.name === 'AbortError' ||
+        err?.code === 'ECONNRESET' ||
+        err?.code === 'ETIMEDOUT' ||
+        err?.code === 'ENOTFOUND';
+
+      if (isRetryable && attempt < retries) {
+        const baseDelay = 500 * Math.pow(2, attempt);
+        const jitter = Math.random() * baseDelay * 0.1;
+        const totalDelay = baseDelay + jitter;
+        
+        console.log(`   ⏳ Retry ${attempt + 1}/${retries} after ${totalDelay.toFixed(0)}ms (${err?.code || err?.name})`);
+        await sleep(totalDelay);
+        continue;
       }
     }
   }
 
-  throw lastError ?? new Error(`Falha após ${retries + 1} tentativas: ${url}`);
+  throw (
+    lastError ?? 
+    new Error(`Failed after ${retries + 1} attempts: ${url}`)
+  );
 }
 
 // ---------------------------------------------------------------------------

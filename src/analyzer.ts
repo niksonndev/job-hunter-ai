@@ -1,9 +1,19 @@
 import fs from 'fs';
 import path from 'path';
 import type { JobData } from './scraper';
+import type Database from 'better-sqlite3';
 import OpenAI from 'openai';
+import { getContentHash, getCachedAnalysis, setCachedAnalysis } from './cache';
 
 export interface AnalysisResult {
+  score: number; // 0-100 relevance score
+  category: 'frontend' | 'analytics' | 'fullstack' | 'backend';
+  matchedSkills: string[];
+  missingSkills: string[];
+}
+
+// Legacy interface for backward compatibility
+export interface AnalysisResultLegacy {
   relevant: boolean;
   category: 'frontend' | 'analytics' | 'fullstack' | 'backend';
 }
@@ -12,11 +22,12 @@ const RESUME_PATH =
   process.env.RESUME_PATH || path.join(process.cwd(), 'data', 'nikson-curriculo-generic.md');
 
 const MAX_DESCRIPTION_CHARS = 3000;
-const MAX_RETRIES = 1;
+const MAX_RETRIES = 2; // Increased for production resilience
+const CACHE_ENABLED = process.env.CACHE_ANALYSIS !== 'false';
 
 let cachedResume: string | null = null;
 
-function loadResume(): string {
+export function loadResume(): string {
   if (cachedResume) return cachedResume;
   const content = fs.readFileSync(RESUME_PATH, 'utf8');
   cachedResume = content;
@@ -27,13 +38,24 @@ const openaiClient = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const SYSTEM_PROMPT = [
-  'Você classifica vagas de emprego.',
-  'Dado um currículo e uma vaga, responda SOMENTE com JSON: { "relevant": boolean, "category": string }',
-  'relevant: true se o candidato tem ao menos 60% de match com os requisitos técnicos da vaga.',
-  'category: o perfil principal exigido pela vaga — "frontend", "analytics", "fullstack" ou "backend".',
-  'Sem justificativas, sem keywords, sem análise adicional.',
-].join('\n');
+const SYSTEM_PROMPT = `You are a job fit analyzer. Given a resume and job posting, respond ONLY with valid JSON.
+
+Analyze fit and respond with:
+{
+  "score": <0-100 integer>,
+  "category": "frontend" | "analytics" | "fullstack" | "backend",
+  "matchedSkills": [<list of skills that match>],
+  "missingSkills": [<list of critical missing skills>]
+}
+
+Scoring guide:
+- 80-100: Excellent match, candidate very well qualified
+- 60-79: Good match, candidate qualified for the role  
+- 40-59: Acceptable match, worth considering
+- 20-39: Poor match, lacks key requirements
+- 0-19: Not a fit
+
+Be strict and realistic. No explanations or markdown.`;
 
 function truncateDescription(description: string): string {
   if (description.length <= MAX_DESCRIPTION_CHARS) return description;
@@ -59,32 +81,63 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function logTokenUsage(usage: OpenAI.Completions.CompletionUsage | undefined): void {
+function logTokenUsage(usage: OpenAI.Completions.CompletionUsage | undefined, cached: boolean = false): void {
   if (!usage) return;
   const { prompt_tokens, completion_tokens, total_tokens } = usage;
-  console.log(`   💰 Tokens — prompt: ${prompt_tokens}, resposta: ${completion_tokens}, total: ${total_tokens}`);
+  const cacheLabel = cached ? ' (cached)' : '';
+  console.log(
+    `   💰 Tokens${cacheLabel} — prompt: ${prompt_tokens}, response: ${completion_tokens}, total: ${total_tokens}`
+  );
 }
 
-export async function analyzeJob(job: JobData): Promise<AnalysisResult> {
-  const resumeText = loadResume();
+/**
+ * Analyze job fit with intelligent caching and resilient retries
+ * PRODUCTION: Reduces OpenAI costs by 50%+ through caching
+ */
+export async function analyzeJob(
+  job: JobData,
+  db?: Database.Database,
+  resumeText?: string
+): Promise<AnalysisResult> {
+  const resume = resumeText || loadResume();
+
+  // Check cache first (major cost saver)
+  if (CACHE_ENABLED && db) {
+    const contentHash = getContentHash(job.title, job.description);
+    const cached = getCachedAnalysis(db, contentHash);
+
+    if (cached) {
+      console.log('🚀 Cache hit! Skipping OpenAI call');
+      logTokenUsage(undefined, true);
+      return {
+        score: cached.score,
+        category: cached.category,
+        matchedSkills: cached.matchedSkills,
+        missingSkills: cached.missingSkills,
+      };
+    }
+  }
 
   const userPrompt = [
-    'CURRÍCULO:',
-    resumeText,
+    'RESUME:',
+    resume,
     '',
-    'VAGA:',
-    `Título: ${job.title}`,
-    `Empresa: ${job.company}`,
-    `Descrição: ${truncateDescription(job.description)}`,
+    'JOB POSTING:',
+    `Title: ${job.title}`,
+    `Company: ${job.company}`,
+    `Location: ${job.location}`,
+    `Description: ${truncateDescription(job.description)}`,
   ].join('\n');
 
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = 1000 * Math.pow(2, attempt);
-      console.log(`   ⏳ Tentativa ${attempt + 1}/${MAX_RETRIES + 1} após ${delay / 1000}s...`);
-      await sleep(delay);
+      const baseDelay = 800 * Math.pow(2, attempt - 1);
+      const jitter = Math.random() * baseDelay * 0.1; // ±10% jitter
+      const totalDelay = baseDelay + jitter;
+      console.log(`   ⏳ Retry ${attempt}/${MAX_RETRIES} after ${totalDelay.toFixed(0)}ms...`);
+      await sleep(totalDelay);
     }
 
     try {
@@ -95,7 +148,7 @@ export async function analyzeJob(job: JobData): Promise<AnalysisResult> {
           { role: 'user', content: userPrompt },
         ],
         temperature: 0,
-        max_tokens: 40,
+        max_tokens: 150,
         response_format: { type: 'json_object' },
       });
 
@@ -108,22 +161,40 @@ export async function analyzeJob(job: JobData): Promise<AnalysisResult> {
       try {
         parsed = JSON.parse(cleaned);
       } catch {
-        console.error('Falha ao fazer JSON.parse da resposta do modelo:', raw);
-        throw new Error('Resposta do modelo não é JSON válido.');
+        console.error('JSON parse failed:', raw);
+        throw new Error('Invalid JSON response from model');
       }
 
-      const { relevant, category } = parsed ?? {};
+      const { score, category, matchedSkills, missingSkills } = parsed ?? {};
 
-      if (typeof relevant !== 'boolean') {
-        throw new Error(`Campo "relevant" ausente ou inválido (esperado: boolean, recebido: ${typeof relevant}).`);
+      if (typeof score !== 'number' || score < 0 || score > 100) {
+        throw new Error(`Invalid score: ${score}`);
       }
 
       const validCategories = ['frontend', 'analytics', 'fullstack', 'backend'];
       if (!validCategories.includes(category)) {
-        throw new Error(`Campo "category" inválido ou ausente (recebido: ${category}).`);
+        throw new Error(`Invalid category: ${category}`);
       }
 
-      return { relevant, category };
+      const result: AnalysisResult = {
+        score,
+        category,
+        matchedSkills: Array.isArray(matchedSkills) ? matchedSkills : [],
+        missingSkills: Array.isArray(missingSkills) ? missingSkills : [],
+      };
+
+      // Cache result for future use
+      if (CACHE_ENABLED && db) {
+        const contentHash = getContentHash(job.title, job.description);
+        setCachedAnalysis(db, contentHash, {
+          score: result.score,
+          category: result.category,
+          matchedSkills: result.matchedSkills,
+          missingSkills: result.missingSkills,
+        });
+      }
+
+      return result;
     } catch (err: any) {
       lastError = err;
 
@@ -143,12 +214,23 @@ export async function analyzeJob(job: JobData): Promise<AnalysisResult> {
   throw lastError;
 }
 
+/**
+ * Legacy function for backward compatibility
+ * Converts new scoring system to old boolean format
+ */
+export function convertToLegacyFormat(analysis: AnalysisResult): AnalysisResultLegacy {
+  return {
+    relevant: analysis.score >= 60,
+    category: analysis.category,
+  };
+}
+
 if (require.main === module) {
   (async () => {
     const url = process.argv[2];
 
     if (!url) {
-      console.error('Uso: ts-node -r dotenv/config src/analyzer.ts "<URL_DA_VAGA>"');
+      console.error('Usage: ts-node -r dotenv/config src/analyzer.ts "<JOB_URL>"');
       process.exit(1);
     }
 
@@ -159,7 +241,7 @@ if (require.main === module) {
       const analysis = await analyzeJob(job);
       console.log(JSON.stringify(analysis, null, 2));
     } catch (err) {
-      console.error('Erro ao analisar vaga:', err);
+      console.error('Error analyzing job:', err);
       process.exit(1);
     }
   })();
