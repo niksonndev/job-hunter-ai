@@ -7,6 +7,7 @@ import {
   searchGuestHttp,
   searchAuthenticatedHttp,
   searchAuthenticatedHtmlHttp,
+  VoyagerSearchResult,
 } from './linkedin-api';
 
 export const SEARCH_KEYWORDS = {
@@ -80,7 +81,7 @@ function buildSearchUrl(rawQuery: string, start = 0): string {
   return `https://www.linkedin.com/jobs/search/?${params.toString()}`;
 }
 
-async function searchAuthenticated(session: LinkedInSession, query: string, maxResults: number): Promise<string[]> {
+async function searchAuthenticated(session: LinkedInSession, query: string, maxResults: number): Promise<VoyagerSearchResult> {
   if (session.voyagerQueryId) {
     const voyagerResult = await searchAuthenticatedHttp(session, query, maxResults);
     return voyagerResult;

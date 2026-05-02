@@ -96,7 +96,7 @@ async function fetchWithRetry(
           const baseDelay = 500 * Math.pow(2, attempt);
           const jitter = Math.random() * baseDelay * 0.1; // ±10%
           const totalDelay = baseDelay + jitter;
-          
+
           console.log(`   ⏳ Retry ${attempt + 1}/${retries} after ${totalDelay.toFixed(0)}ms (HTTP ${res.status})`);
           await sleep(totalDelay);
           continue;
@@ -118,7 +118,7 @@ async function fetchWithRetry(
         const baseDelay = 500 * Math.pow(2, attempt);
         const jitter = Math.random() * baseDelay * 0.1;
         const totalDelay = baseDelay + jitter;
-        
+
         console.log(`   ⏳ Retry ${attempt + 1}/${retries} after ${totalDelay.toFixed(0)}ms (${err?.code || err?.name})`);
         await sleep(totalDelay);
         continue;
@@ -127,7 +127,7 @@ async function fetchWithRetry(
   }
 
   throw (
-    lastError ?? 
+    lastError ??
     new Error(`Failed after ${retries + 1} attempts: ${url}`)
   );
 }
