@@ -148,7 +148,7 @@ export async function analyzeJob(
           { role: 'user', content: userPrompt },
         ],
         temperature: 0,
-        max_tokens: 150,
+        max_tokens: 1000,
         response_format: { type: 'json_object' },
       });
 
@@ -160,9 +160,12 @@ export async function analyzeJob(
       let parsed: any;
       try {
         parsed = JSON.parse(cleaned);
-      } catch {
-        console.error('JSON parse failed:', raw);
-        throw new Error('Invalid JSON response from model');
+      } catch (parseErr) {
+        // Better error reporting for debugging truncated responses
+        const preview = cleaned.length > 200 ? cleaned.slice(0, 200) + '...' : cleaned;
+        console.error('JSON parse failed:', preview);
+        console.error('Raw length:', cleaned.length, 'chars');
+        throw new Error(`Invalid JSON response from model (${cleaned.length} chars received)`);
       }
 
       const { score, category, matchedSkills, missingSkills } = parsed ?? {};
