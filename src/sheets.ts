@@ -94,7 +94,6 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
     requestBody: {
       values: [
         [
-          new Date().toISOString(),
           job.url,
           job.title,
           job.company,
@@ -102,6 +101,7 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
           relevant,
           score,
           analysis.category,
+          new Date().toISOString(),
         ],
       ],
     },

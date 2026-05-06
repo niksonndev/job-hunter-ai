@@ -10,7 +10,6 @@ export interface JobData {
 
 /**
  * Faz o scraping de uma vaga específica do LinkedIn via HTTP + cheerio.
- * Sem Playwright: ~1-2s por vaga em vez de ~30s.
  */
 export async function scrapeJob(url: string): Promise<JobData> {
   return scrapeJobHttp(url);

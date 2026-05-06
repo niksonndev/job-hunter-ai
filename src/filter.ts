@@ -68,7 +68,6 @@ function normalize(text: string): string {
 
 /**
  * Simple heuristic-based filter to avoid sending obvious rejects to OpenAI
- * Saves ~40-60% on API costs by pre-filtering before expensive analysis
  * 
  * Returns:
  * - passed: false (hard reject) → skip entirely

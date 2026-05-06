@@ -5,7 +5,7 @@ import { scrapeJob } from './scraper';
 import { analyzeJob, loadResume } from './analyzer';
 import { filterJob } from './filter';
 import { searchJobs, SEARCH_KEYWORDS, SearchCategory } from './search';
-import { hasJobUrl, saveJobUrl, saveJobDetails, getJobStats } from './storage';
+import { hasJobUrl, saveJobUrl, saveJobDetails, getJobStats, hasJobByTitleAndCompany } from './storage';
 import { appendJobToSheet, isSheetsEnabled } from './sheets';
 import Database from 'better-sqlite3';
 import path from 'path';
@@ -69,6 +69,13 @@ async function processJobUrl(
     // SCRAPE: Get job details
     console.log(`🔍 Scraping: ${url}`);
     const job = await scrapeJob(url);
+
+    // DUPLICATE CHECK: Skip if same title+company already in database (prevents duplicate applications)
+    if (hasJobByTitleAndCompany(job.title, job.company)) {
+      console.log(`🚫 Rejected (duplicate): "${job.title}" at ${job.company} already processed`);
+      stats.skipped++;
+      return;
+    }
 
     // FILTER: Hard reject bad matches (saves OpenAI calls)
     const filterResult = filterJob(job);

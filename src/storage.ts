@@ -71,6 +71,7 @@ function getDb(): Database.Database {
       CREATE INDEX IF NOT EXISTS idx_category ON jobs(category);
       CREATE INDEX IF NOT EXISTS idx_created_at ON jobs(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_heuristic_score ON jobs(heuristic_score DESC);
+      CREATE INDEX IF NOT EXISTS idx_title_company ON jobs(title, company);
     `);
 
     // Initialize analysis cache table
@@ -96,6 +97,18 @@ export function saveJobUrl(url: string): boolean {
 export function hasJobUrl(url: string): boolean {
   const database = getDb();
   const row = database.prepare('SELECT 1 FROM jobs WHERE url = ? LIMIT 1').get(url);
+  return !!row;
+}
+
+/**
+ * Check if a job with the same title and company already exists
+ * Used to prevent duplicate applications (same job posted with different URLs)
+ */
+export function hasJobByTitleAndCompany(title: string, company: string): boolean {
+  const database = getDb();
+  const row = database.prepare(
+    'SELECT 1 FROM jobs WHERE title = ? AND company = ? LIMIT 1'
+  ).get(title, company);
   return !!row;
 }
 
