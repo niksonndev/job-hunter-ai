@@ -7,6 +7,7 @@ import { filterJob } from './filter';
 import { searchJobs, SEARCH_KEYWORDS, SearchCategory } from './search';
 import { hasJobUrl, saveJobUrl, saveJobDetails, getJobStats, hasJobByTitleAndCompany } from './storage';
 import { appendJobToSheet, isSheetsEnabled } from './sheets';
+import { adaptResume } from './adapter';
 import Database from 'better-sqlite3';
 import path from 'path';
 
@@ -35,6 +36,7 @@ interface ProcessingStats {
   errors: number;
   savedToSheets: number;
   apiCallsSaved: number;
+  adaptedResumes: number;
 }
 
 const stats: ProcessingStats = {
@@ -45,6 +47,7 @@ const stats: ProcessingStats = {
   errors: 0,
   savedToSheets: 0,
   apiCallsSaved: 0,
+  adaptedResumes: 0,
 };
 
 /**
@@ -116,14 +119,26 @@ async function processJobUrl(
     stats.saved++;
     console.log(`✅ Saved! Score: ${analysisResult.score}/100, Category: ${analysisResult.category}`);
 
+    // SKILLS ANALYSIS: Display matched and missing skills
+    console.log(`\n🎯 Skills Analysis:`);
+    console.log(`   ✅ Matched Skills: ${analysisResult.matchedSkills.length > 0 ? analysisResult.matchedSkills.join(', ') : 'None'}`);
+    console.log(`   ❌ Missing Skills: ${analysisResult.missingSkills.length > 0 ? analysisResult.missingSkills.join(', ') : 'None'}\n`);
+
+    // ADAPT: Generate ATS-optimized resume for this job
+    try {
+      console.log(`📝 Adapting resume...`);
+      await adaptResume(job, analysisResult);
+      stats.adaptedResumes++;
+      console.log(`✅ Resume adapted! Saved to data/outputs/`);
+    } catch (err) {
+      console.warn(`⚠️ Resume adaptation failed (continuing):`, err);
+    }
+
     // SYNC: Optional Google Sheets append
     if (isSheetsEnabled()) {
       try {
-        // Convert to legacy format for sheets compatibility
-        await appendJobToSheet(job, {
-          relevant: analysisResult.score >= 60,
-          category: analysisResult.category,
-        });
+        // Send full analysis with skills breakdown
+        await appendJobToSheet(job, analysisResult);
         stats.savedToSheets++;
         console.log(`📄 Synced to Sheets`);
       } catch (err) {
@@ -307,7 +322,8 @@ function printStats(startTime: number): void {
   console.log(`⏭️  Skipped: ${stats.skipped}`);
   console.log(`❌ Errors: ${stats.errors}`);
   console.log(`💰 API calls saved: ${stats.apiCallsSaved} (heuristic filtering)`);
-  console.log(`📄 Sheets synced: ${stats.savedToSheets}`);
+  console.log(`� Resumes adapted: ${stats.adaptedResumes}`);
+  console.log(`�📄 Sheets synced: ${stats.savedToSheets}`);
   console.log(`\n📈 Database Stats:`);
   console.log(`   Total jobs: ${dbStats.total}`);
   console.log(`   Relevant (score>=60): ${dbStats.relevant}`);

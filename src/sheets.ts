@@ -60,7 +60,7 @@ export function isSheetsEnabled(): boolean {
 
 /**
  * Append job to Google Sheets
- * PRODUCTION: Supports both old and new analysis formats
+ * PRODUCTION: Supports both old and new analysis formats with skills breakdown
  */
 export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets): Promise<void> {
   const config = readSheetsConfig();
@@ -75,11 +75,15 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
   // Determine relevance and score from analysis object
   let relevant: string;
   let score: string;
+  let matchedSkillsStr: string = '';
+  let missingSkillsStr: string = '';
 
   if ('score' in analysis) {
     // New format
     relevant = analysis.score >= 60 ? 'true' : 'false';
     score = String(analysis.score);
+    matchedSkillsStr = analysis.matchedSkills?.join(', ') || '';
+    missingSkillsStr = analysis.missingSkills?.join(', ') || '';
   } else {
     // Legacy format
     relevant = analysis.relevant ? 'true' : 'false';
@@ -88,7 +92,7 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
-    range: `${config.worksheetName}!A:H`,
+    range: `${config.worksheetName}!A:K`,
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
@@ -101,6 +105,8 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
           relevant,
           score,
           analysis.category,
+          matchedSkillsStr,
+          missingSkillsStr,
           new Date().toISOString(),
         ],
       ],

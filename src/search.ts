@@ -20,10 +20,10 @@ export const SEARCH_KEYWORDS = {
   },
   backend: {
     nodeJsDeveloper: 'Node.js Developer',
-    backendEngineer: 'Backend Engineer',
-    /* pythonDeveloper: 'Python Developer',
-    javaDeveloper: 'Java Developer',
-    golangDeveloper: 'Golang Developer', */
+    /*     backendEngineer: 'Backend Engineer',
+        pythonDeveloper: 'Python Developer',
+        javaDeveloper: 'Java Developer',
+        golangDeveloper: 'Golang Developer', */
   },
   fullstack: {
     fullstackDeveloper: 'Fullstack Developer',
@@ -32,13 +32,13 @@ export const SEARCH_KEYWORDS = {
     fullstackTypeScript: 'Fullstack TypeScript',
     fullstackJavaScript: 'Fullstack JavaScript',
   },
-  webAnalytics: {
-    gtm: 'Google Tag Manager',
-    digitalAnalytics: 'Digital Analytics',
-    webAnalyticsKeyword: 'Web Analytics',
-    ga4Gtm: 'GA4 GTM',
-    analyticsEngineer: 'Analytics Engineer',
-  },
+  /*   webAnalytics: {
+      gtm: 'Google Tag Manager',
+      digitalAnalytics: 'Digital Analytics',
+      webAnalyticsKeyword: 'Web Analytics',
+      ga4Gtm: 'GA4 GTM',
+      analyticsEngineer: 'Analytics Engineer',
+    }, */
 } as const;
 
 export type SearchCategory = keyof typeof SEARCH_KEYWORDS;

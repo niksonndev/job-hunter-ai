@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import type { JobData } from './scraper';
 import type { AnalysisResult } from './analyzer';
 
-const RESUME_PATH = path.join(process.cwd(), 'data', 'nikson-curriculo-pt.md');
+const RESUME_PATH = path.join(process.cwd(), 'data', 'nikson-resume-master-en.md');
 const OUTPUT_DIR = path.join(process.cwd(), 'data', 'outputs');
 
 const openaiClient = new OpenAI({
@@ -33,28 +33,39 @@ function sanitizeCompanyForFilename(company: string): string {
 export async function adaptResume(job: JobData, analysis: AnalysisResult): Promise<string> {
   const originalResume = loadResume();
 
+  // Validate job description exists
+  if (!job.description || job.description.trim().length === 0) {
+    throw new Error('Job description is empty or missing. Cannot adapt resume without job details.');
+  }
+
   const systemPrompt = [
-    'Você é um especialista em currículos otimizados para ATS (Applicant Tracking Systems).',
-    'Sua tarefa é reescrever o currículo fornecido para maximizar a compatibilidade com a vaga.',
-    'Regras obrigatórias:',
-    '- Mantenha 100% das informações verdadeiras — nunca invente experiências ou habilidades',
-    '- Incorpore naturalmente os termos técnicos relevantes para a categoria da vaga',
-    '- Priorize e reordene as seções de skills para refletir os requisitos da vaga',
-    '- Mantenha o formato markdown',
-    '- Retorne apenas o currículo reescrito, sem explicações adicionais',
+    'You are an expert technical recruiter and ATS resume specialist.',
+    'Task: adapt the candidate\'s master resume to match a specific job posting.',
+    '',
+    'Mandatory rules:',
+    '- Never invent experience, skills, or achievements not present in the master resume. Only reorder, re-prioritize, and rephrase existing content.',
+    '- Reorder and emphasize skills/bullet points to mirror the job posting\'s key requirements and terminology.',
+    '- Naturally incorporate relevant technical keywords from the job posting, but only where truthfully applicable.',
+    '- Avoid empty adjectives ("hard-working", "passionate", "team player") unless backed by a concrete example already in the master resume.',
+    '- Keep total length equivalent to one page (approximately 450-550 words in the body, excluding headers).',
+    '- Match the output language to the job posting\'s language.',
+    '- Preserve markdown formatting from the master resume structure.',
+    '- Output ONLY the rewritten resume in markdown. No explanations, no preamble, no comments.',
   ].join('\n');
 
   const userPrompt = [
-    `CATEGORIA DA VAGA: ${analysis.category}`,
-    `TÍTULO DA VAGA: ${job.title}`,
-    `EMPRESA: ${job.company}`,
-    '',
-    'CURRÍCULO ORIGINAL:',
+    `JOB TITLE: ${job.title}`,
+    `COMPANY: ${job.company}`,
+    `CATEGORY: ${analysis.category}`,
+    `MATCHED SKILLS: ${analysis.matchedSkills.join(', ') || 'N/A'}`,
+    `MISSING SKILLS: ${analysis.missingSkills.join(', ') || 'N/A'}`,
+    `JOB DESCRIPTION: ${job.description}`,
+    'ORIGINAL RESUME:',
     originalResume,
   ].join('\n');
 
   const response = await openaiClient.chat.completions.create({
-    model: 'gpt-4.1', // usa gpt-4o equivalente (ajuste aqui se quiser o nome exato do modelo)
+    model: 'gpt-4.1-mini', // usa gpt-4o equivalente (ajuste aqui se quiser o nome exato do modelo)
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },

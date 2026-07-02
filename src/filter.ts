@@ -11,9 +11,9 @@ const INTERN_TERMS = [
   'estagio',
   'estagiário',
   'estagiario',
-  'trainee',
+  /* 'trainee',
   'apprentice',
-  'intern',
+  'intern', */
   'júnior estágio',
   'junior estágio',
 ];
@@ -31,7 +31,6 @@ const HARD_REJECT_TECHNOLOGIES: Array<{ label: string; pattern: RegExp }> = [
 
 const HARD_REJECT_PATTERNS = [
   { label: 'Freelance', pattern: /\b(freelance|freelancer|contractor|1099)\b/ },
-  { label: 'Contract-only', pattern: /\b(contract\s+to\s+hire|c2h|short[\s-]?term)\b/ },
 ];
 
 // Keywords that boost heuristic score (indicate strong fit)
@@ -41,14 +40,14 @@ const BOOST_KEYWORDS: Record<string, number> = {
   'node': 1.15,
   'node.js': 1.15,
   'nodejs': 1.15,
-  'aws': 1.10,
+  'oracle': 1.10,
   'graphql': 1.15,
   'postgres': 1.10,
   'sql': 1.08,
   'api': 1.05,
   'rest': 1.05,
-  'javascript': 1.03,
-  'js': 1.03,
+  'javascript': 1.20,
+  'js': 1.20,
 };
 
 // Keywords that reduce heuristic score

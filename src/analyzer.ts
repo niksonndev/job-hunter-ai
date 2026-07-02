@@ -142,7 +142,7 @@ export async function analyzeJob(
 
     try {
       const response = await openaiClient.chat.completions.create({
-        model: 'gpt-4.1-nano',
+        model: 'gpt-4.1-mini',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
