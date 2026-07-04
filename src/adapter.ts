@@ -60,8 +60,7 @@ export async function adaptResume(job: JobData, analysis: AnalysisResult): Promi
     `MATCHED SKILLS: ${analysis.matchedSkills.join(', ') || 'N/A'}`,
     `MISSING SKILLS: ${analysis.missingSkills.join(', ') || 'N/A'}`,
     `JOB DESCRIPTION: ${job.description}`,
-    'ORIGINAL RESUME:',
-    originalResume,
+    `ORIGINAL RESUME: ${originalResume}`,
   ].join('\n');
 
   const response = await openaiClient.chat.completions.create({
