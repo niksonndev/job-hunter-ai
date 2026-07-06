@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/index.ts",
+    "debug:job": "ts-node src/debug-job.ts",
     "test": "echo \"Nenhum teste definido\" && exit 0"
   },
   "keywords": [],
