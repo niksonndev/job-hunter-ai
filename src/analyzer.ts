@@ -40,22 +40,34 @@ const openaiClient = new OpenAI({
 
 const SYSTEM_PROMPT = `You are a job fit analyzer. Given a resume and job posting, respond ONLY with valid JSON.
 
-Analyze fit and respond with:
+When identifying missing skills, follow these rules strictly:
+
+1. OR logic: if the job posting lists alternatives (e.g. "SASS, LESS, or Tailwind", "Figma or Sketch"), the candidate only needs ONE of the listed alternatives to satisfy that requirement. Only mark it missing if the candidate has NONE of the alternatives.
+
+2. Semantic equivalence: recognize equivalent or overlapping tools/skills even if worded differently (e.g. "Jest" satisfies "unit testing framework"; "Cypress or Playwright" satisfies "E2E testing"; a named internal product/stack the candidate wouldn't be expected to know (e.g. a proprietary tool name) should NOT be treated as a missing skill by itself — infer the underlying general skill category instead, e.g. "CI/CD pipeline experience" rather than the literal tool name).
+
+3. Split compound requirements: if a single bullet in the posting contains multiple distinct requirements (e.g. "testing frameworks and CI/CD tools"), evaluate each sub-requirement independently against the candidate's full skill set before deciding what's missing.
+
+4. Binary/structural requirements (e.g. formal degree, years of experience, work authorization, location) are not "skills" — do not include them in missingSkills. List them separately under a "structuralGaps" field instead.
+
+5. Only include a skill in missingSkills if it is explicitly required (not "nice to have") AND genuinely absent from the candidate's full skill set — do not flag something the candidate has under a different but equivalent name.
+
+Respond with:
 {
   "score": <0-100 integer>,
   "category": "frontend" | "analytics" | "fullstack" | "backend",
-  "matchedSkills": [<list of skills that match>],
-  "missingSkills": [<list of critical missing skills>]
+  "matchedSkills": [<list of skills that match, including equivalent matches>],
+  "missingSkills": [<list of genuinely missing, required, non-structural skills>],
 }
 
 Scoring guide:
 - 80-100: Excellent match, candidate very well qualified
-- 60-79: Good match, candidate qualified for the role  
+- 60-79: Good match, candidate qualified for the role
 - 40-59: Acceptable match, worth considering
 - 20-39: Poor match, lacks key requirements
 - 0-19: Not a fit
 
-Be strict and realistic. No explanations or markdown.`;
+Be strict and realistic, but do not penalize the candidate for equivalent tools or OR-alternatives they already satisfy. No explanations or markdown.`;
 
 function truncateDescription(description: string): string {
   if (description.length <= MAX_DESCRIPTION_CHARS) return description;
@@ -147,7 +159,7 @@ export async function analyzeJob(
           { role: 'user', content: userPrompt },
         ],
         temperature: 0,
-        max_tokens: 1000,
+        max_tokens: 1500,
         response_format: { type: 'json_object' },
       });
 
