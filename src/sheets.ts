@@ -72,24 +72,17 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
 
   const sheets = getSheetsClient(config);
 
-  // Determine score from analysis object
-  let score: string;
   let matchedSkillsStr: string = '';
   let missingSkillsStr: string = '';
 
   if ('score' in analysis) {
-    // New format
-    score = String(analysis.score);
     matchedSkillsStr = analysis.matchedSkills?.join(', ') || '';
     missingSkillsStr = analysis.missingSkills?.join(', ') || '';
-  } else {
-    // Legacy format
-    score = 'N/A';
   }
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
-    range: `${config.worksheetName}!A:H`,
+    range: `${config.worksheetName}!A:G`,
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
@@ -99,7 +92,6 @@ export async function appendJobToSheet(job: JobData, analysis: AnalysisForSheets
           job.title,
           job.company,
           job.location,
-          score,
           analysis.category,
           matchedSkillsStr,
           missingSkillsStr,
