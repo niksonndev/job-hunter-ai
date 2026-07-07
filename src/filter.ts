@@ -31,6 +31,8 @@ const HARD_REJECT_TECHNOLOGIES: Array<{ label: string; pattern: RegExp }> = [
 
 const HARD_REJECT_PATTERNS = [
   { label: 'Freelance', pattern: /\b(freelance|freelancer|contractor|1099)\b/ },
+  { label: '100% presencial', pattern: /100%\s*presencial/ },
+  { label: 'Localização: híbrido', pattern: /localizacao:\s*hibrido/ },
 ];
 
 // Keywords that boost heuristic score (indicate strong fit)
