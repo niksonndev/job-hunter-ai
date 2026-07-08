@@ -3,7 +3,7 @@ import 'dotenv/config';
 import PQueue from 'p-queue';
 import { scrapeJob } from './scraper';
 import { analyzeJob, loadResume } from './analyzer';
-import { filterJob } from './filter';
+import { filterJob, MIN_SCORE_FOR_ANALYSIS } from './filter';
 import { searchJobs, SEARCH_KEYWORDS, SearchCategory } from './search';
 import { hasJobUrl, saveJobUrl, saveJobDetails, getJobStats, hasJobByTitleAndCompany } from './storage';
 import { appendJobToSheet, isSheetsEnabled } from './sheets';
@@ -89,7 +89,7 @@ async function processJobUrl(
     }
 
     // HEURISTIC SCORE: Skip low-potential jobs without OpenAI
-    if (filterResult.score && filterResult.score < 30) {
+    if (filterResult.score && filterResult.score < MIN_SCORE_FOR_ANALYSIS) {
       console.log(`⏭️ Low heuristic score (${filterResult.score}/100): ${job.title}`);
       stats.skipped++;
       stats.apiCallsSaved++; // Avoided OpenAI call
@@ -101,7 +101,7 @@ async function processJobUrl(
     const analysisResult = await analyzeJob(job, db, resumeText);
 
     // DECISION: Save if score >= 60
-    if (analysisResult.score < 60) {
+    if (analysisResult.score < 80) {
       console.log(`⏭️ Low score (${analysisResult.score}/100): ${job.title}`);
       stats.skipped++;
       return;

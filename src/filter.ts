@@ -27,6 +27,9 @@ const HARD_REJECT_TECHNOLOGIES: Array<{ label: string; pattern: RegExp }> = [
   { label: 'Rails', pattern: /\brails\b/ },
   { label: 'Golang', pattern: /\bgolang\b/ },
   { label: 'Go', pattern: /\bgo\s+(developer|engineer|dev|eng)\b/ },
+  { label: 'Vue', pattern: /\b(vue\.?js?|nuxt|pinia|vuex)\b/i },
+  { label: 'Angular', pattern: /\b(angular|angularjs|@angular)\b/i },
+  { label: 'Presencial/Híbrido', pattern: /Local de Trabalho:.*(Avenida|Av\.|Rua|Endereço|Escritório|Office|Berrini|Paulista|brooklin|vila olimpia|pinheiros|itaim)|presencial|híbrido|hybrid|on-site|onsite/i }
 ];
 
 const HARD_REJECT_PATTERNS = [
@@ -61,7 +64,7 @@ const REDUCE_KEYWORDS: Record<string, number> = {
 };
 
 const EXCLUDED_COMPANIES: string[] = [];
-const MIN_SCORE_FOR_ANALYSIS = 30; // Skip OpenAI if score < this
+export const MIN_SCORE_FOR_ANALYSIS = 50; // Skip OpenAI if score < this
 
 function normalize(text: string): string {
   return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
